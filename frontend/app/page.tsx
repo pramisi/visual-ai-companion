@@ -122,9 +122,11 @@ export default function LandingPage() {
             </p>
 
             <div className="flex gap-4 justify-center flex-wrap animate-slide-up">
-              <button className="px-8 py-4 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 font-semibold text-lg shadow-2xl shadow-purple-500/50 hover:scale-105 transition-transform hover:shadow-purple-500/70">
-                Start Learning Free
-              </button>
+              <a href="/dashboard">
+  <button className="px-8 py-4 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 font-semibold text-lg shadow-2xl shadow-purple-500/50 hover:scale-105 transition-transform hover:shadow-purple-500/70">
+    Start Learning Free
+  </button>
+</a>
               <button className="px-8 py-4 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 font-semibold text-lg hover:scale-105 hover:bg-white/20 transition-all">
                 Watch Demo
               </button>
