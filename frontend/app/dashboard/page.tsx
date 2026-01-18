@@ -10,6 +10,7 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('mindmap');
   const [topic, setTopic] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [mindMapData, setMindMapData] = useState<any>(null);
   const [focusTime, setFocusTime] = useState(25 * 60);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [treeLevel, setTreeLevel] = useState(5);
@@ -39,11 +40,37 @@ export default function Dashboard() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
+    if (!topic.trim()) return;
+    
     setIsGenerating(true);
-    setTimeout(() => {
+    
+    try {
+      const response = await fetch('http://localhost:8000/api/generate-mindmap', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          topic: topic,
+          depth: 'medium'
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate mind map');
+      }
+      
+      const data = await response.json();
+      setMindMapData(data);
+      console.log('Mind map generated:', data);
+      
+    } catch (error) {
+      console.error('Error generating mind map:', error);
+      alert('Failed to generate mind map. Make sure backend is running!');
+    } finally {
       setIsGenerating(false);
-    }, 2000);
+    }
   };
 
   return (
@@ -142,6 +169,23 @@ export default function Dashboard() {
                 <div className="text-center">
                   <div className="w-16 h-16 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mx-auto mb-4" />
                   <p className="text-gray-400">Creating your visual learning map...</p>
+                </div>
+              ) : mindMapData ? (
+                <div className="w-full space-y-4">
+                  <div className="text-2xl font-bold text-purple-400 text-center mb-4">{mindMapData.title}</div>
+                  <div className="bg-black/20 rounded-lg p-4 max-h-96 overflow-auto">
+                    <div className="text-sm space-y-2">
+                      <div className="text-green-400 font-bold">✅ Mind Map Generated Successfully!</div>
+                      <div className="text-gray-400">Nodes: {mindMapData.nodes?.length || 0}</div>
+                      <div className="text-gray-400">Connections: {mindMapData.edges?.length || 0}</div>
+                      <details className="mt-4">
+                        <summary className="text-purple-400 cursor-pointer hover:text-purple-300">View Data (Click to expand)</summary>
+                        <pre className="text-xs text-green-400 mt-2 overflow-auto">
+                          {JSON.stringify(mindMapData, null, 2)}
+                        </pre>
+                      </details>
+                    </div>
+                  </div>
                 </div>
               ) : topic ? (
                 <div className="text-center space-y-4">
