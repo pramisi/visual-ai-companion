@@ -4,6 +4,9 @@ from pydantic import BaseModel
 from typing import List, Dict, Any
 import os
 from dotenv import load_dotenv
+import google.generativeai as genai
+import json
+import re
 
 load_dotenv()
 
@@ -18,10 +21,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Initialize Google Gemini
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+gemini_model = None
+if GOOGLE_API_KEY:
+    genai.configure(api_key=GOOGLE_API_KEY)
+    gemini_model = genai.GenerativeModel('gemini-flash-latest')
+
 # Models
 class MindMapRequest(BaseModel):
     topic: str
     depth: str = "medium"
+    mode: str = "roadmap"  # "roadmap" or "deepdive"
 
 class Node(BaseModel):
     id: str
@@ -40,13 +51,372 @@ class MindMapResponse(BaseModel):
     edges: List[Edge]
     title: str
 
+# Fallback templates if AI is not available
+ROADMAP_TEMPLATES = {
+    "machine learning": {
+        "prerequisites": ["Python Programming", "Linear Algebra & Calculus", "Statistics & Probability"],
+        "foundations": ["Supervised Learning Algorithms", "Unsupervised Learning", "Model Evaluation Metrics"],
+        "intermediate": ["Neural Networks Basics", "Deep Learning Fundamentals", "CNNs & RNNs"],
+        "advanced": ["Transformer Architecture", "GANs & Autoencoders", "Reinforcement Learning"],
+        "tools": ["TensorFlow/Keras", "PyTorch", "Scikit-learn & Pandas"],
+        "projects": ["Image Classification System", "NLP Sentiment Analyzer", "Recommendation Engine"]
+    },
+    "default": {
+        "prerequisites": ["Basic Understanding", "Required Tools Setup", "Foundational Knowledge"],
+        "foundations": ["Core Concepts", "Fundamental Principles", "Basic Techniques"],
+        "intermediate": ["Advanced Concepts", "Best Practices", "Common Patterns"],
+        "advanced": ["Expert Techniques", "Optimization", "Real-world Applications"],
+        "tools": ["Development Environment", "Essential Libraries", "Testing Tools"],
+        "projects": ["Beginner Project", "Intermediate Project", "Advanced Project"]
+    }
+}
+
+def generate_ai_deepdive(topic: str) -> dict:
+    """Use AI to generate detailed concept breakdown"""
+    if not GOOGLE_API_KEY:
+        print("No API key - using fallback")
+        return {
+            "types": ["Type 1", "Type 2", "Type 3"],
+            "formulas": ["Formula 1", "Formula 2", "Formula 3"],
+            "examples": ["Example 1", "Example 2", "Example 3"],
+            "usecases": ["Use Case 1", "Use Case 2", "Use Case 3"],
+            "comparisons": ["Comparison 1", "Comparison 2"],
+            "bestpractices": ["Best Practice 1", "Best Practice 2"]
+        }
+    
+    prompt = f"""You are an expert technical educator. Create a comprehensive deep-dive analysis of: "{topic}"
+
+Provide detailed, specific information in these 6 categories:
+
+1. types: List 3-5 SPECIFIC types/variations with their actual names
+2. formulas: Provide actual mathematical formulas or technical definitions
+3. examples: Give concrete code examples or practical demonstrations
+4. usecases: Explain when and why to use each type
+5. comparisons: Compare different approaches
+6. bestpractices: Provide actionable advice
+
+CRITICAL: Be extremely specific and technical. Use real names, actual formulas, concrete examples.
+CRITICAL: Keep each item under 45 characters. Be extremely concise.
+
+Return ONLY valid JSON (no markdown, no explanations):
+{{
+  "types": ["Type 1", "Type 2", "Type 3"],
+  "formulas": ["Formula 1", "Formula 2", "Formula 3"],
+  "examples": ["Example 1", "Example 2", "Example 3"],
+  "usecases": ["Use case 1", "Use case 2", "Use case 3"],
+  "comparisons": ["Comparison 1", "Comparison 2"],
+  "bestpractices": ["Practice 1", "Practice 2", "Practice 3"]
+}}"""
+
+    try:
+        model = genai.GenerativeModel('gemini-flash-latest')
+        response = model.generate_content(prompt)
+        response_text = response.text.strip()
+        
+        # Clean markdown
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0]
+        elif "```" in response_text:
+            parts = response_text.split("```")
+            for part in parts:
+                if "{" in part and "}" in part:
+                    response_text = part
+                    break
+        
+        response_text = response_text.strip()
+        deepdive = json.loads(response_text)
+        
+        required_keys = ["types", "formulas", "examples", "usecases", "comparisons", "bestpractices"]
+        if all(key in deepdive for key in required_keys):
+            print(f"✓ Deep dive generated for: {topic}")
+            return deepdive
+        else:
+            print("Invalid deepdive structure")
+            return {
+                "types": ["Type 1", "Type 2", "Type 3"],
+                "formulas": ["Formula 1", "Formula 2", "Formula 3"],
+                "examples": ["Example 1", "Example 2", "Example 3"],
+                "usecases": ["Use Case 1", "Use Case 2", "Use Case 3"],
+                "comparisons": ["Comparison 1", "Comparison 2"],
+                "bestpractices": ["Practice 1", "Practice 2", "Practice 3"]
+            }
+    except Exception as e:
+        print(f"Deep dive generation failed: {e}")
+        return {
+            "types": ["Type 1", "Type 2", "Type 3"],
+            "formulas": ["Formula 1", "Formula 2", "Formula 3"],
+            "examples": ["Example 1", "Example 2", "Example 3"],
+            "usecases": ["Use Case 1", "Use Case 2", "Use Case 3"],
+            "comparisons": ["Comparison 1", "Comparison 2"],
+            "bestpractices": ["Practice 1", "Practice 2", "Practice 3"]
+        }
+
+def generate_ai_roadmap(topic: str) -> dict:
+    """Use Google Gemini AI to generate a custom learning roadmap"""
+    if not gemini_model:
+        print("No API key - using fallback template")
+        return ROADMAP_TEMPLATES.get("default")
+    
+    prompt = f"""Create a comprehensive learning roadmap for: "{topic}"
+
+You are an expert curriculum designer. Generate a structured learning path with these 6 categories:
+
+1. prerequisites: List 3-4 essential things learners must know BEFORE starting
+2. foundations: List 3-4 core fundamental concepts to master FIRST
+3. intermediate: List 3-4 intermediate level topics to learn NEXT
+4. advanced: List 3-4 advanced/expert concepts for mastery
+5. tools: List 3-4 essential tools, frameworks, or technologies
+6. projects: List 3 hands-on projects (beginner, intermediate, advanced)
+
+IMPORTANT: Return ONLY valid JSON (no markdown, no explanations):
+{{
+  "prerequisites": ["item1", "item2", "item3"],
+  "foundations": ["item1", "item2", "item3"],
+  "intermediate": ["item1", "item2", "item3"],
+  "advanced": ["item1", "item2", "item3"],
+  "tools": ["item1", "item2", "item3"],
+  "projects": ["item1", "item2", "item3"]
+}}
+
+Be specific, practical, concise (max 50 characters per item)."""
+
+    try:
+        response = gemini_model.generate_content(prompt)
+        response_text = response.text.strip()
+        
+        # Clean markdown
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0]
+        elif "```" in response_text:
+            parts = response_text.split("```")
+            for part in parts:
+                if "{" in part and "}" in part:
+                    response_text = part
+                    break
+        
+        response_text = response_text.strip()
+        roadmap = json.loads(response_text)
+        
+        required_keys = ["prerequisites", "foundations", "intermediate", "advanced", "tools", "projects"]
+        if all(key in roadmap for key in required_keys):
+            print(f"✓ Successfully generated AI roadmap for: {topic}")
+            return roadmap
+        else:
+            print("Invalid roadmap structure, using fallback")
+            return ROADMAP_TEMPLATES.get("default")
+        
+    except Exception as e:
+        print(f"AI roadmap generation failed: {e}")
+        return ROADMAP_TEMPLATES.get("default")
+
+def get_roadmap_data(topic: str):
+    """Get roadmap data - try AI first, then templates"""
+    topic_lower = topic.lower()
+    for key in ROADMAP_TEMPLATES:
+        if key in topic_lower and key != "default":
+            print(f"Using cached template for: {key}")
+            return ROADMAP_TEMPLATES[key]
+    
+    print(f"Generating AI roadmap for: {topic}")
+    return generate_ai_roadmap(topic)
+
+def create_hierarchical_tree(topic: str, data: dict, branch_configs: list, mode: str):
+    """Create a top-down hierarchical tree layout"""
+    nodes = []
+    edges = []
+    node_id = 1
+    
+    # Root node at top
+    nodes.append({
+        "id": str(node_id),
+        "type": "input",
+        "data": {"label": f"🔍 {topic}"},
+        "position": {"x": 600, "y": 0}
+    })
+    root_id = str(node_id)
+    node_id += 1
+    
+    # Calculate layout
+    num_branches = len([k for k, _ in branch_configs if k in data])
+    branch_width = 300
+    total_width = num_branches * branch_width
+    start_x = 600 - (total_width / 2) + (branch_width / 2)
+    
+    branch_index = 0
+    
+    for key, label in branch_configs:
+        if key in data:
+            # Branch header (level 1)
+            branch_x = start_x + (branch_index * branch_width)
+            branch_id = str(node_id)
+            
+            nodes.append({
+                "id": branch_id,
+                "type": "default",
+                "data": {"label": label},
+                "position": {"x": branch_x, "y": 150}
+            })
+            
+            # Connect root to branch
+            edges.append({
+                "id": f"e{root_id}-{branch_id}",
+                "source": root_id,
+                "target": branch_id,
+                "animated": True
+            })
+            node_id += 1
+            
+            # Sub-items (level 2)
+            items = data[key]
+            
+            for idx, item in enumerate(items):
+                item_id = str(node_id)
+                
+                # Truncate text
+                item_label = item if len(item) <= 45 else item[:42] + "..."
+                
+                # Position items vertically under branch
+                item_y = 300 + (idx * 120)
+                
+                nodes.append({
+                    "id": item_id,
+                    "type": "default",
+                    "data": {"label": f"• {item_label}"},
+                    "position": {"x": branch_x, "y": item_y}
+                })
+                
+                # Connect branch to item
+                edges.append({
+                    "id": f"e{branch_id}-{item_id}",
+                    "source": branch_id,
+                    "target": item_id,
+                    "animated": True
+                })
+                
+                node_id += 1
+            
+            branch_index += 1
+    
+    return MindMapResponse(
+        nodes=nodes,
+        edges=edges,
+        title=f"Deep Dive Analysis: {topic}"
+    )
+
+def create_horizontal_roadmap(topic: str, data: dict, branch_configs: list, mode: str):
+    """Create horizontal roadmap layout"""
+    nodes = []
+    edges = []
+    node_id = 1
+    
+    # Main topic node (center)
+    nodes.append({
+        "id": str(node_id),
+        "type": "input",
+        "data": {"label": f"🎯 {topic}"},
+        "position": {"x": 500, "y": 0}
+    })
+    main_node_id = str(node_id)
+    node_id += 1
+    
+    # Calculate positions for branches
+    y_offset = 150
+    branch_parent_ids = {}
+    max_sub_y = y_offset
+    
+    for key, label, x_offset in branch_configs:
+        if key in data:
+            # Branch header
+            branch_id = str(node_id)
+            nodes.append({
+                "id": branch_id,
+                "type": "default",
+                "data": {"label": label},
+                "position": {"x": 500 + x_offset, "y": y_offset}
+            })
+            branch_parent_ids[key] = branch_id
+            
+            # Connect to main topic
+            edges.append({
+                "id": f"e{main_node_id}-{branch_id}",
+                "source": main_node_id,
+                "target": branch_id,
+                "animated": True
+            })
+            node_id += 1
+            
+            # Add sub-items
+            items = data[key]
+            sub_y = y_offset + 150
+            
+            for idx, item in enumerate(items):
+                item_id = str(node_id)
+                
+                row = idx // 2
+                col = idx % 2
+                sub_x_offset = x_offset + (col * 200) - 100
+                sub_y_offset = sub_y + (row * 100)
+                
+                item_label = item if len(item) <= 50 else item[:47] + "..."
+                
+                nodes.append({
+                    "id": item_id,
+                    "type": "default",
+                    "data": {"label": f"• {item_label}"},
+                    "position": {"x": 500 + sub_x_offset, "y": sub_y_offset}
+                })
+                
+                edges.append({
+                    "id": f"e{branch_id}-{item_id}",
+                    "source": branch_id,
+                    "target": item_id,
+                    "animated": True
+                })
+                
+                node_id += 1
+            
+            max_sub_y = max(max_sub_y, sub_y + (len(items) // 2) * 100)
+    
+    # Add final mastery node
+    mastery_id = str(node_id)
+    nodes.append({
+        "id": mastery_id,
+        "type": "output",
+        "data": {"label": "🏆 Master Level"},
+        "position": {"x": 500, "y": max_sub_y + 200}
+    })
+    
+    # Connect to mastery
+    if "advanced" in branch_parent_ids:
+        edges.append({
+            "id": f"e{branch_parent_ids['advanced']}-{mastery_id}",
+            "source": branch_parent_ids['advanced'],
+            "target": mastery_id,
+            "animated": True
+        })
+    if "projects" in branch_parent_ids:
+        edges.append({
+            "id": f"e{branch_parent_ids['projects']}-{mastery_id}",
+            "source": branch_parent_ids['projects'],
+            "target": mastery_id,
+            "animated": True
+        })
+    
+    return MindMapResponse(
+        nodes=nodes,
+        edges=edges,
+        title=f"Complete Learning Roadmap: {topic}"
+    )
+
 # Routes
 @app.get("/")
 async def root():
+    ai_status = "enabled (Google Gemini)" if gemini_model else "disabled (no API key)"
     return {
         "message": "Visual AI Companion API",
         "version": "1.0.0",
-        "status": "active"
+        "status": "active",
+        "ai_generation": ai_status
     }
 
 @app.get("/health")
@@ -55,79 +425,39 @@ async def health():
 
 @app.post("/api/generate-mindmap", response_model=MindMapResponse)
 async def generate_mindmap(request: MindMapRequest):
-    """Generate AI-powered mind map"""
+    """Generate AI-powered comprehensive roadmap or deep dive"""
     try:
-        # For now, return a template structure
-        # We'll add real AI generation next
-        
         topic = request.topic
+        mode = request.mode
         
-        # Generate nodes with smart positioning
-        nodes = [
-            {
-                "id": "1",
-                "type": "input",
-                "data": {"label": f"📚 {topic}"},
-                "position": {"x": 400, "y": 0}
-            },
-            {
-                "id": "2",
-                "type": "default",
-                "data": {"label": "🎯 Core Concepts"},
-                "position": {"x": 200, "y": 120}
-            },
-            {
-                "id": "3",
-                "type": "default",
-                "data": {"label": "💡 Key Principles"},
-                "position": {"x": 600, "y": 120}
-            },
-            {
-                "id": "4",
-                "type": "default",
-                "data": {"label": "🔬 Applications"},
-                "position": {"x": 100, "y": 240}
-            },
-            {
-                "id": "5",
-                "type": "default",
-                "data": {"label": "📖 Resources"},
-                "position": {"x": 400, "y": 240}
-            },
-            {
-                "id": "6",
-                "type": "default",
-                "data": {"label": "🚀 Practice Projects"},
-                "position": {"x": 700, "y": 240}
-            },
-            {
-                "id": "7",
-                "type": "output",
-                "data": {"label": "🏆 Mastery"},
-                "position": {"x": 400, "y": 360}
-            }
-        ]
-        
-        # Connect nodes
-        edges = [
-            {"id": "e1-2", "source": "1", "target": "2", "animated": True},
-            {"id": "e1-3", "source": "1", "target": "3", "animated": True},
-            {"id": "e2-4", "source": "2", "target": "4", "animated": True},
-            {"id": "e2-5", "source": "2", "target": "5", "animated": True},
-            {"id": "e3-5", "source": "3", "target": "5", "animated": True},
-            {"id": "e3-6", "source": "3", "target": "6", "animated": True},
-            {"id": "e4-7", "source": "4", "target": "7", "animated": True},
-            {"id": "e5-7", "source": "5", "target": "7", "animated": True},
-            {"id": "e6-7", "source": "6", "target": "7", "animated": True}
-        ]
-        
-        return MindMapResponse(
-            nodes=nodes,
-            edges=edges,
-            title=f"Learning Map: {topic}"
-        )
+        # Generate different data based on mode
+        if mode == "deepdive":
+            data = generate_ai_deepdive(topic)
+            branch_configs = [
+                ("types", "📋 Types & Variations"),
+                ("formulas", "📐 Formulas & Definitions"),
+                ("examples", "💡 Examples"),
+                ("usecases", "🎯 Use Cases"),
+                ("comparisons", "⚖️ Comparisons"),
+                ("bestpractices", "✨ Best Practices")
+            ]
+            # Use hierarchical layout for deep dive
+            return create_hierarchical_tree(topic, data, branch_configs, mode)
+        else:
+            data = get_roadmap_data(topic)
+            branch_configs = [
+                ("prerequisites", "📚 Prerequisites", -400),
+                ("foundations", "🏗️ Foundations", -200),
+                ("intermediate", "🚀 Intermediate", 0),
+                ("advanced", "⚡ Advanced", 200),
+                ("tools", "🛠️ Tools & Tech", 400),
+                ("projects", "💼 Projects", 600)
+            ]
+            # Use horizontal layout for roadmap
+            return create_horizontal_roadmap(topic, data, branch_configs, mode)
         
     except Exception as e:
+        print(f"Error in generate_mindmap: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/start-focus")

@@ -1,15 +1,22 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { 
   Brain, Target, Timer, TreePine, Sparkles,
   Play, Pause, RotateCcw, Plus, Download
 } from 'lucide-react';
 
+// Move this OUTSIDE the component
+const MindMapFlow = dynamic(() => import('@/components/MindMapFlow'), {
+  ssr: false,
+});
+
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('mindmap');
   const [topic, setTopic] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [mapType, setMapType] = useState<'roadmap' | 'deepdive'>('roadmap');
   const [mindMapData, setMindMapData] = useState<any>(null);
   const [focusTime, setFocusTime] = useState(25 * 60);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
@@ -52,9 +59,10 @@ export default function Dashboard() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          topic: topic,
-          depth: 'medium'
-        })
+  topic: topic,
+  depth: 'medium',
+  mode: mapType  // Add this line
+})
       });
       
       if (!response.ok) {
@@ -132,17 +140,59 @@ export default function Dashboard() {
 
             <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
               <div className="space-y-4">
+                {/* Mode Selector */}
                 <div>
-                  <label className="block text-sm text-gray-400 mb-2">What do you want to learn?</label>
+                  <label className="block text-sm text-gray-400 mb-2">Generation Mode</label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setMapType('roadmap')}
+                      className={`flex-1 px-4 py-3 rounded-lg transition-all ${
+                        mapType === 'roadmap'
+                          ? 'bg-purple-500 text-white'
+                          : 'bg-white/10 text-gray-400 hover:bg-white/20'
+                      }`}
+                    >
+                      🗺️ Learning Roadmap
+                    </button>
+                    <button
+                      onClick={() => setMapType('deepdive')}
+                      className={`flex-1 px-4 py-3 rounded-lg transition-all ${
+                        mapType === 'deepdive'
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-white/10 text-gray-400 hover:bg-white/20'
+                      }`}
+                    >
+                      🔍 Concept Deep Dive
+                    </button>
+                  </div>
+                </div>
+
+                {/* Topic Input */}
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">
+                    {mapType === 'roadmap' 
+                      ? 'What do you want to learn?' 
+                      : 'Which concept do you want to explore?'}
+                  </label>
                   <input
                     type="text"
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
-                    placeholder="e.g., Machine Learning, React Hooks, Quantum Physics..."
+                    placeholder={
+                      mapType === 'roadmap'
+                        ? 'e.g., Machine Learning, React Hooks, Quantum Physics...'
+                        : 'e.g., Activation Functions, Binary Search Tree, REST API...'
+                    }
                     className="w-full px-4 py-3 rounded-lg bg-white/10 border border-white/20 focus:border-purple-500 outline-none transition-all"
                   />
+                  {mapType === 'deepdive' && (
+                    <p className="text-xs text-gray-500 mt-2">
+                      💡 Get detailed breakdown with types, formulas, examples, and use cases
+                    </p>
+                  )}
                 </div>
 
+                {/* Generate Button */}
                 <button
                   onClick={handleGenerate}
                   disabled={!topic || isGenerating}
@@ -156,7 +206,7 @@ export default function Dashboard() {
                   ) : (
                     <>
                       <Brain className="w-5 h-5" />
-                      Generate Mind Map
+                      {mapType === 'roadmap' ? 'Generate Roadmap' : 'Deep Dive Analysis'}
                     </>
                   )}
                 </button>
@@ -168,23 +218,20 @@ export default function Dashboard() {
               {isGenerating ? (
                 <div className="text-center">
                   <div className="w-16 h-16 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mx-auto mb-4" />
-                  <p className="text-gray-400">Creating your visual learning map...</p>
+                  <div className="space-y-2">
+  <p className="text-gray-400">AI is generating your personalized roadmap...</p>
+  <p className="text-sm text-gray-500">This may take 10-15 seconds</p>
+</div>
                 </div>
               ) : mindMapData ? (
                 <div className="w-full space-y-4">
                   <div className="text-2xl font-bold text-purple-400 text-center mb-4">{mindMapData.title}</div>
-                  <div className="bg-black/20 rounded-lg p-4 max-h-96 overflow-auto">
-                    <div className="text-sm space-y-2">
-                      <div className="text-green-400 font-bold">✅ Mind Map Generated Successfully!</div>
-                      <div className="text-gray-400">Nodes: {mindMapData.nodes?.length || 0}</div>
-                      <div className="text-gray-400">Connections: {mindMapData.edges?.length || 0}</div>
-                      <details className="mt-4">
-                        <summary className="text-purple-400 cursor-pointer hover:text-purple-300">View Data (Click to expand)</summary>
-                        <pre className="text-xs text-green-400 mt-2 overflow-auto">
-                          {JSON.stringify(mindMapData, null, 2)}
-                        </pre>
-                      </details>
-                    </div>
+                  <MindMapFlow nodes={mindMapData.nodes} edges={mindMapData.edges} />
+                  <div className="text-center">
+                    <p className="text-sm text-green-400">✅ Mind Map Generated Successfully!</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {mindMapData.nodes?.length || 0} nodes • {mindMapData.edges?.length || 0} connections
+                    </p>
                   </div>
                 </div>
               ) : topic ? (
