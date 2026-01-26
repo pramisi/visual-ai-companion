@@ -461,6 +461,140 @@ async def generate_mindmap(request: MindMapRequest):
         print(f"Error in generate_mindmap: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+class StudyPlanRequest(BaseModel):
+    topic: str
+    weeks: int = 4
+    hours_per_day: int = 2
+    difficulty: str = "intermediate"
+
+class WeekPlan(BaseModel):
+    week: int
+    title: str
+    topics: List[str]
+    daily_hours: int
+    goals: List[str]
+
+class StudyPlanResponse(BaseModel):
+    topic: str
+    total_weeks: int
+    daily_hours: int
+    difficulty: str
+    weeks: List[WeekPlan]
+    estimated_total_hours: int
+
+@app.post("/api/generate-study-plan", response_model=StudyPlanResponse)
+async def generate_study_plan(request: StudyPlanRequest):
+    """Generate AI-powered study plan"""
+    try:
+        topic = request.topic
+        num_weeks = request.weeks
+        daily_hours = request.hours_per_day
+        
+        if not GOOGLE_API_KEY:
+            # Fallback template
+            weeks_data = []
+            for week in range(1, num_weeks + 1):
+                weeks_data.append(WeekPlan(
+                    week=week,
+                    title=f"Week {week}: {'Basics' if week <= 2 else 'Advanced'}",
+                    topics=[f"Topic {i}" for i in range(1, 4)],
+                    daily_hours=daily_hours,
+                    goals=[f"Goal {i}" for i in range(1, 3)]
+                ))
+            
+            return StudyPlanResponse(
+                topic=topic,
+                total_weeks=num_weeks,
+                daily_hours=daily_hours,
+                difficulty=request.difficulty,
+                weeks=weeks_data,
+                estimated_total_hours=num_weeks * 7 * daily_hours
+            )
+        
+        # Use AI to generate study plan
+        prompt = f"""Create a detailed {num_weeks}-week study plan for: "{topic}"
+
+Student details:
+- Study time: {daily_hours} hours/day
+- Difficulty level: {request.difficulty}
+
+For each week, provide:
+1. A descriptive title for that week
+2. 3-4 specific topics to cover
+3. 2-3 concrete learning goals
+
+Return ONLY valid JSON:
+{{
+  "weeks": [
+    {{
+      "week": 1,
+      "title": "Week title",
+      "topics": ["Topic 1", "Topic 2", "Topic 3"],
+      "goals": ["Goal 1", "Goal 2"]
+    }}
+  ]
+}}
+
+Be specific and progressive - each week should build on previous weeks."""
+
+        model = genai.GenerativeModel('gemini-flash-latest')
+        response = model.generate_content(prompt)
+        response_text = response.text.strip()
+        
+        # Clean markdown
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0]
+        elif "```" in response_text:
+            parts = response_text.split("```")
+            for part in parts:
+                if "{" in part and "}" in part:
+                    response_text = part
+                    break
+        
+        response_text = response_text.strip()
+        plan_data = json.loads(response_text)
+        
+        # Format weeks
+        weeks_list = []
+        for week_data in plan_data.get("weeks", []):
+            weeks_list.append(WeekPlan(
+                week=week_data.get("week", 1),
+                title=week_data.get("title", f"Week {week_data.get('week', 1)}"),
+                topics=week_data.get("topics", []),
+                daily_hours=daily_hours,
+                goals=week_data.get("goals", [])
+            ))
+        
+        return StudyPlanResponse(
+            topic=topic,
+            total_weeks=num_weeks,
+            daily_hours=daily_hours,
+            difficulty=request.difficulty,
+            weeks=weeks_list,
+            estimated_total_hours=num_weeks * 7 * daily_hours
+        )
+        
+    except Exception as e:
+        print(f"Study plan generation failed: {e}")
+        # Return fallback
+        weeks_data = []
+        for week in range(1, request.weeks + 1):
+            weeks_data.append(WeekPlan(
+                week=week,
+                title=f"Week {week}: {'Foundation' if week <= 2 else 'Advanced Concepts'}",
+                topics=[f"Core Topic {i}" for i in range(1, 4)],
+                daily_hours=request.hours_per_day,
+                goals=[f"Master skill {i}" for i in range(1, 3)]
+            ))
+        
+        return StudyPlanResponse(
+            topic=request.topic,
+            total_weeks=request.weeks,
+            daily_hours=request.hours_per_day,
+            difficulty=request.difficulty,
+            weeks=weeks_data,
+            estimated_total_hours=request.weeks * 7 * request.hours_per_day
+        )
 @app.post("/api/start-focus")
 async def start_focus(task: str, minutes: int = 25):
     """Start a focus session"""

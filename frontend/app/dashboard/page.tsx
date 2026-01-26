@@ -22,6 +22,11 @@ export default function Dashboard() {
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [treeLevel, setTreeLevel] = useState(5);
   const [streakDays, setStreakDays] = useState(12);
+  const [studyPlanTopic, setStudyPlanTopic] = useState('');
+const [studyPlanWeeks, setStudyPlanWeeks] = useState(4);
+const [studyPlanHours, setStudyPlanHours] = useState(2);
+const [studyPlan, setStudyPlan] = useState<any>(null);
+const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
 
   const tabs = [
     { id: 'mindmap', name: 'Mind Map', icon: Brain, color: 'purple' },
@@ -79,6 +84,55 @@ export default function Dashboard() {
     } finally {
       setIsGenerating(false);
     }
+  };
+  const generateStudyPlan = async () => {
+    if (!studyPlanTopic.trim()) return;
+    
+    setIsGeneratingPlan(true);
+    
+    try {
+      const response = await fetch('https://visual-ai-companion.onrender.com/api/generate-study-plan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          topic: studyPlanTopic,
+          weeks: studyPlanWeeks,
+          hours_per_day: studyPlanHours,
+          difficulty: 'intermediate'
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate study plan');
+      }
+      
+      const data = await response.json();
+      setStudyPlan(data);
+      console.log('Study plan generated:', data);
+      
+    } catch (error) {
+      console.error('Error generating study plan:', error);
+      alert('Failed to generate study plan. Make sure backend is running!');
+    } finally {
+      setIsGeneratingPlan(false);
+    }
+  };
+
+  const toggleWeekCompletion = (weekIndex: number) => {
+    if (!studyPlan) return;
+    
+    const updatedWeeks = [...studyPlan.weeks];
+    updatedWeeks[weekIndex] = {
+      ...updatedWeeks[weekIndex],
+      completed: !updatedWeeks[weekIndex].completed
+    };
+    
+    setStudyPlan({
+      ...studyPlan,
+      weeks: updatedWeeks
+    });
   };
 
   return (
@@ -251,34 +305,186 @@ export default function Dashboard() {
         )}
 
         {/* Study Plan Tab */}
+        {/* Study Plan Tab */}
         {activeTab === 'study' && (
           <div className="space-y-6 animate-fade-in">
-            <h2 className="text-3xl font-bold">Personalized Study Plan</h2>
-            <div className="grid gap-4">
-              {[1, 2, 3].map((week) => (
-                <div key={week} className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10 hover:border-white/20 transition-all">
-                  <div className="flex items-start justify-between">
+            <h2 className="text-3xl font-bold">AI Study Plan Generator</h2>
+
+            {!studyPlan ? (
+              // Generation Form
+              <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">What do you want to learn?</label>
+                    <input
+                      type="text"
+                      value={studyPlanTopic}
+                      onChange={(e) => setStudyPlanTopic(e.target.value)}
+                      placeholder="e.g., Data Structures, Spanish, Guitar..."
+                      className="w-full px-4 py-3 rounded-lg bg-white/10 border border-white/20 focus:border-blue-500 outline-none transition-all"
+                    />
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-4">
                     <div>
-                      <h3 className="text-xl font-bold mb-2">Week {week}</h3>
-                      <p className="text-gray-400 mb-4">
-                        {week === 1 ? 'Foundations & Core Concepts' : week === 2 ? 'Intermediate Topics' : 'Advanced Applications'}
-                      </p>
-                      <div className="flex gap-2 flex-wrap">
-                        {['Topic A', 'Topic B', 'Topic C'].map((topic, i) => (
-                          <span key={i} className="px-3 py-1 rounded-full bg-blue-500/20 text-blue-400 text-sm border border-blue-500/30">
-                            {topic}
-                          </span>
+                      <label className="block text-sm text-gray-400 mb-2">Duration (weeks)</label>
+                      <select
+                        value={studyPlanWeeks}
+                        onChange={(e) => setStudyPlanWeeks(Number(e.target.value))}
+                        className="w-full px-4 py-3 rounded-lg bg-white/10 border border-white/20 focus:border-blue-500 outline-none transition-all"
+                      >
+                        {[2, 4, 6, 8, 12].map(weeks => (
+                          <option key={weeks} value={weeks}>{weeks} weeks</option>
                         ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-2">Hours per day</label>
+                      <select
+                        value={studyPlanHours}
+                        onChange={(e) => setStudyPlanHours(Number(e.target.value))}
+                        className="w-full px-4 py-3 rounded-lg bg-white/10 border border-white/20 focus:border-blue-500 outline-none transition-all"
+                      >
+                        {[1, 2, 3, 4, 5].map(hours => (
+                          <option key={hours} value={hours}>{hours} hour{hours > 1 ? 's' : ''}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={generateStudyPlan}
+                    disabled={!studyPlanTopic || isGeneratingPlan}
+                    className="w-full px-6 py-4 rounded-lg bg-gradient-to-r from-blue-500 to-cyan-500 font-semibold text-lg hover:scale-105 transition-transform disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2"
+                  >
+                    {isGeneratingPlan ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Generating Your Plan...
+                      </>
+                    ) : (
+                      <>
+                        <Target className="w-5 h-5" />
+                        Generate Study Plan
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // Generated Study Plan Display
+              <div className="space-y-6">
+                {/* Plan Header */}
+                <div className="bg-gradient-to-r from-blue-500/20 to-cyan-500/20 backdrop-blur-sm rounded-2xl p-6 border border-blue-500/30">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="text-2xl font-bold mb-2">{studyPlan.topic}</h3>
+                      <div className="flex gap-4 text-sm text-gray-300">
+                        <span>📅 {studyPlan.total_weeks} weeks</span>
+                        <span>⏰ {studyPlan.daily_hours}h/day</span>
+                        <span>📊 {studyPlan.estimated_total_hours}h total</span>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-2xl font-bold text-blue-400">{week * 33}%</div>
-                      <div className="text-sm text-gray-500">Complete</div>
+                    <button
+                      onClick={() => setStudyPlan(null)}
+                      className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition-all text-sm"
+                    >
+                      New Plan
+                    </button>
+                  </div>
+                </div>
+
+                {/* Weekly Breakdown */}
+                <div className="grid gap-4">
+                  {studyPlan.weeks.map((week: any, index: number) => (
+                    <div
+                      key={index}
+                      className={`bg-white/5 backdrop-blur-sm rounded-xl p-6 border transition-all ${
+                        week.completed
+                          ? 'border-green-500/50 bg-green-500/10'
+                          : 'border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div>
+                          <div className="flex items-center gap-3 mb-2">
+                            <h3 className="text-xl font-bold">{week.title}</h3>
+                            {week.completed && <span className="text-green-400 text-sm">✓ Completed</span>}
+                          </div>
+                          <p className="text-sm text-gray-400">Week {week.week} • {week.daily_hours}h/day</p>
+                        </div>
+                        <button
+                          onClick={() => toggleWeekCompletion(index)}
+                          className={`px-4 py-2 rounded-lg transition-all ${
+                            week.completed
+                              ? 'bg-green-500 hover:bg-green-600'
+                              : 'bg-white/10 hover:bg-white/20'
+                          }`}
+                        >
+                          {week.completed ? 'Completed' : 'Mark Complete'}
+                        </button>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div>
+                          <h4 className="text-sm font-semibold text-blue-400 mb-2">📚 Topics to Cover:</h4>
+                          <div className="flex gap-2 flex-wrap">
+                            {week.topics.map((topic: string, i: number) => (
+                              <span
+                                key={i}
+                                className="px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 text-sm border border-blue-500/30"
+                              >
+                                {topic}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {week.goals && week.goals.length > 0 && (
+                          <div>
+                            <h4 className="text-sm font-semibold text-purple-400 mb-2">🎯 Goals:</h4>
+                            <ul className="space-y-1">
+                              {week.goals.map((goal: string, i: number) => (
+                                <li key={i} className="text-sm text-gray-300 flex items-start gap-2">
+                                  <span className="text-purple-400 mt-0.5">•</span>
+                                  {goal}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Progress Summary */}
+                <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10">
+                  <h3 className="text-lg font-bold mb-3">Progress Overview</h3>
+                  <div className="grid md:grid-cols-3 gap-4">
+                    <div className="text-center">
+                      <div className="text-3xl font-bold text-blue-400">
+                        {studyPlan.weeks.filter((w: any) => w.completed).length}/{studyPlan.weeks.length}
+                      </div>
+                      <div className="text-sm text-gray-400 mt-1">Weeks Completed</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-3xl font-bold text-green-400">
+                        {Math.round((studyPlan.weeks.filter((w: any) => w.completed).length / studyPlan.weeks.length) * 100)}%
+                      </div>
+                      <div className="text-sm text-gray-400 mt-1">Overall Progress</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-3xl font-bold text-purple-400">
+                        {studyPlan.weeks.filter((w: any) => w.completed).length * 7 * studyPlan.daily_hours}h
+                      </div>
+                      <div className="text-sm text-gray-400 mt-1">Hours Invested</div>
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
           </div>
         )}
 
