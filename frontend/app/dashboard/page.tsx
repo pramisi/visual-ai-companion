@@ -27,6 +27,8 @@ const [studyPlanWeeks, setStudyPlanWeeks] = useState(4);
 const [studyPlanHours, setStudyPlanHours] = useState(2);
 const [studyPlan, setStudyPlan] = useState<any>(null);
 const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+const [completedSessions, setCompletedSessions] = useState(0);
+const [totalFocusMinutes, setTotalFocusMinutes] = useState(0);
 
   const tabs = [
     { id: 'mindmap', name: 'Mind Map', icon: Brain, color: 'purple' },
@@ -37,14 +39,28 @@ const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
 
   // Timer countdown
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isTimerRunning && focusTime > 0) {
-      interval = setInterval(() => {
-        setFocusTime((prev) => prev - 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isTimerRunning, focusTime]);
+  let interval: NodeJS.Timeout;
+  if (isTimerRunning && focusTime > 0) {
+    interval = setInterval(() => {
+      setFocusTime((prev) => {
+        if (prev <= 1) {
+          // Timer finished!
+          setIsTimerRunning(false);
+          playCompletionSound();
+          handleSessionComplete();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }
+  return () => clearInterval(interval);
+}, [isTimerRunning, focusTime]);
+useEffect(() => {
+  // Calculate total focus minutes from completed sessions
+  const totalMinutes = completedSessions * 25;
+  setTotalFocusMinutes(totalMinutes);
+}, [completedSessions]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -134,6 +150,42 @@ const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
       weeks: updatedWeeks
     });
   };
+  const playCompletionSound = () => {
+  // Browser notification
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification('Focus Session Complete! 🎉', {
+      body: 'Great work! Time for a break.',
+      icon: '/favicon.ico'
+    });
+  }
+  
+  // Play sound
+  const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBi6Czfj');
+  audio.play().catch(() => console.log('Sound play failed'));
+};
+
+const handleSessionComplete = () => {
+  const sessionMinutes = 25; // Full session completed
+  
+  setCompletedSessions(prev => prev + 1);
+  setTotalFocusMinutes(prev => {
+    const newTotal = prev + sessionMinutes;
+    
+    // Level up every 100 minutes
+    const newLevel = Math.floor(newTotal / 100) + 1;
+    setTreeLevel(newLevel);
+    
+    return newTotal;
+  });
+  
+  // Could increment streak here too
+  // For now, streak is manually tracked
+};
+const requestNotificationPermission = () => {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+};
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950 to-slate-900 text-white">
@@ -493,15 +545,36 @@ const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
           <div className="space-y-6 animate-fade-in max-w-2xl mx-auto">
             <h2 className="text-3xl font-bold text-center">Focus Session</h2>
             
+            {/* Main Timer */}
             <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-12 border border-white/10 text-center">
-              <div className="text-8xl font-bold mb-8 bg-gradient-to-r from-orange-400 to-red-400 bg-clip-text text-transparent">
+              <div className={`text-8xl font-bold mb-8 bg-gradient-to-r transition-all ${
+                focusTime < 60 ? 'from-red-400 to-orange-400 animate-pulse' : 'from-orange-400 to-red-400'
+              } bg-clip-text text-transparent`}>
                 {formatTime(focusTime)}
               </div>
 
+              {/* Status Message */}
+              {focusTime === 0 && (
+                <div className="mb-6 text-green-400 text-lg font-semibold animate-bounce">
+                  🎉 Session Complete! Great work!
+                </div>
+              )}
+
+              {isTimerRunning && focusTime > 0 && (
+                <div className="mb-6 text-blue-400 text-sm">
+                  Stay focused... {Math.ceil(focusTime / 60)} minutes remaining
+                </div>
+              )}
+
+              {/* Control Buttons */}
               <div className="flex justify-center gap-4 mb-8">
                 <button
-                  onClick={() => setIsTimerRunning(!isTimerRunning)}
-                  className="w-16 h-16 rounded-full bg-gradient-to-r from-orange-500 to-red-500 flex items-center justify-center hover:scale-110 transition-transform"
+                  onClick={() => {
+                    requestNotificationPermission();
+                    setIsTimerRunning(!isTimerRunning);
+                  }}
+                  disabled={focusTime === 0}
+                  className="w-16 h-16 rounded-full bg-gradient-to-r from-orange-500 to-red-500 flex items-center justify-center hover:scale-110 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isTimerRunning ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8 ml-1" />}
                 </button>
@@ -516,20 +589,67 @@ const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
                 </button>
               </div>
 
+              {/* Preset Times */}
               <div className="flex gap-4 justify-center">
-                {[15, 25, 45].map((mins) => (
+                {[
+                  { mins: 15, label: 'Short' },
+                  { mins: 25, label: 'Standard' },
+                  { mins: 45, label: 'Long' }
+                ].map((preset) => (
                   <button
-                    key={mins}
+                    key={preset.mins}
                     onClick={() => {
-                      setFocusTime(mins * 60);
+                      setFocusTime(preset.mins * 60);
                       setIsTimerRunning(false);
                     }}
-                    className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition-all"
+                    className={`px-4 py-2 rounded-lg transition-all ${
+                      focusTime === preset.mins * 60 && !isTimerRunning
+                        ? 'bg-orange-500 text-white'
+                        : 'bg-white/10 hover:bg-white/20'
+                    }`}
                   >
-                    {mins} min
+                    {preset.mins}m
+                    <div className="text-xs text-gray-400">{preset.label}</div>
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Session Stats */}
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10 text-center">
+                <div className="text-3xl font-bold text-green-400 mb-2">
+                  {completedSessions}
+                </div>
+                <div className="text-sm text-gray-400">Sessions Today</div>
+              </div>
+
+              <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10 text-center">
+                <div className="text-3xl font-bold text-blue-400 mb-2">
+                  {totalFocusMinutes}m
+                </div>
+                <div className="text-sm text-gray-400">Focus Time</div>
+              </div>
+
+              <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10 text-center">
+                <div className="text-3xl font-bold text-purple-400 mb-2">
+                  {streakDays} 🔥
+                </div>
+                <div className="text-sm text-gray-400">Day Streak</div>
+              </div>
+            </div>
+
+            {/* Tips */}
+            <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 backdrop-blur-sm rounded-xl p-6 border border-blue-500/20">
+              <h3 className="font-bold mb-2 flex items-center gap-2">
+                <span>💡</span> Focus Tips
+              </h3>
+              <ul className="text-sm text-gray-300 space-y-1">
+                <li>• Remove distractions - close unnecessary tabs</li>
+                <li>• Use headphones to block noise</li>
+                <li>• Take breaks between sessions</li>
+                <li>• Stay hydrated during focus time</li>
+              </ul>
             </div>
           </div>
         )}
@@ -539,35 +659,151 @@ const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
           <div className="space-y-6 animate-fade-in">
             <h2 className="text-3xl font-bold">Your Growth Journey</h2>
             
+            {/* Main Stats Cards */}
             <div className="grid md:grid-cols-3 gap-6">
-              <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10 text-center">
+              <div className="bg-gradient-to-br from-green-500/20 to-emerald-500/20 backdrop-blur-sm rounded-xl p-6 border border-green-500/30 text-center hover:scale-105 transition-transform">
                 <TreePine className="w-12 h-12 text-green-400 mx-auto mb-4" />
-                <div className="text-4xl font-bold text-green-400 mb-2">Level {treeLevel}</div>
-                <div className="text-gray-400">Tree Stage: Sprouting</div>
+                <div className="text-5xl font-bold text-green-400 mb-2">Level {treeLevel}</div>
+                <div className="text-gray-300 mb-4">
+                  {treeLevel < 3 ? '🌱 Seedling' : 
+                   treeLevel < 6 ? '🌿 Sprouting' : 
+                   treeLevel < 10 ? '🌳 Growing Tree' : 
+                   '🌲 Mighty Oak'}
+                </div>
+                <div className="text-xs text-gray-400">
+                  {100 - (totalFocusMinutes % 100)} minutes to next level
+                </div>
               </div>
 
-              <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10 text-center">
-                <div className="text-4xl font-bold text-orange-400 mb-2">{streakDays} Days</div>
-                <div className="text-gray-400">Current Streak 🔥</div>
+              <div className="bg-gradient-to-br from-orange-500/20 to-red-500/20 backdrop-blur-sm rounded-xl p-6 border border-orange-500/30 text-center hover:scale-105 transition-transform">
+                <div className="text-5xl font-bold text-orange-400 mb-2">{streakDays}</div>
+                <div className="text-gray-300 mb-2">Day Streak 🔥</div>
+                <div className="text-sm text-gray-400">
+                  {streakDays > 7 ? 'Amazing consistency!' : 
+                   streakDays > 3 ? 'Keep it up!' : 
+                   'Start your streak today!'}
+                </div>
+                <button 
+                  onClick={() => setStreakDays(prev => prev + 1)}
+                  className="mt-4 px-4 py-2 rounded-lg bg-orange-500/20 hover:bg-orange-500/30 transition-all text-sm"
+                >
+                  Mark Today Complete
+                </button>
               </div>
 
-              <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10 text-center">
-                <div className="text-4xl font-bold text-purple-400 mb-2">1,250</div>
-                <div className="text-gray-400">Focus Minutes</div>
+              <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 backdrop-blur-sm rounded-xl p-6 border border-purple-500/30 text-center hover:scale-105 transition-transform">
+                <div className="text-5xl font-bold text-purple-400 mb-2">{totalFocusMinutes}</div>
+                <div className="text-gray-300 mb-2">Total Minutes</div>
+                <div className="text-sm text-gray-400">
+                  {Math.floor(totalFocusMinutes / 60)}h {totalFocusMinutes % 60}m focused
+                </div>
+                <div className="text-xs text-gray-500 mt-2">
+                  {completedSessions} sessions completed
+                </div>
               </div>
             </div>
 
             {/* Tree Visualization */}
-            <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-12 border border-white/10 flex items-center justify-center min-h-[300px]">
-              <div className="text-center">
-                <div className="text-9xl mb-4">🌱</div>
-                <p className="text-xl text-gray-400">Your learning tree is growing!</p>
-                <p className="text-sm text-gray-500 mt-2">Keep your streak to reach the next stage</p>
+            <div className="bg-gradient-to-br from-green-900/30 to-blue-900/30 backdrop-blur-sm rounded-2xl p-12 border border-green-500/20 min-h-[400px] flex flex-col items-center justify-center relative overflow-hidden">
+              {/* Animated background */}
+              <div className="absolute inset-0 bg-gradient-to-t from-green-900/20 to-transparent"></div>
+              
+              <div className="relative z-10 text-center">
+                {/* Tree Emoji based on level */}
+                <div className="text-9xl mb-6 animate-float">
+                  {treeLevel < 3 ? '🌱' : 
+                   treeLevel < 6 ? '🌿' : 
+                   treeLevel < 10 ? '🌳' : 
+                   treeLevel < 15 ? '🌲' : 
+                   '🎄'}
+                </div>
+                
+                <h3 className="text-3xl font-bold bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent mb-4">
+                  {treeLevel < 3 ? 'Your Journey Begins!' : 
+                   treeLevel < 6 ? 'Growing Strong!' : 
+                   treeLevel < 10 ? 'Thriving Tree!' : 
+                   treeLevel < 15 ? 'Magnificent Growth!' : 
+                   'Master Level Achieved!'}
+                </h3>
+                
+                <p className="text-gray-300 max-w-md mx-auto mb-6">
+                  {treeLevel < 3 ? 'Complete focus sessions to help your tree grow. Every 100 minutes = 1 level up!' : 
+                   treeLevel < 6 ? 'Your consistency is showing! Keep nurturing your growth with daily focus sessions.' : 
+                   treeLevel < 10 ? 'Amazing progress! Your learning tree is flourishing with each session.' : 
+                   'You\'ve built incredible momentum! Your dedication is truly inspiring.'}
+                </p>
+
+                {/* Progress Bar */}
+                <div className="max-w-md mx-auto">
+                  <div className="flex justify-between text-sm text-gray-400 mb-2">
+                    <span>Level {treeLevel}</span>
+                    <span>{totalFocusMinutes % 100}/100 min</span>
+                    <span>Level {treeLevel + 1}</span>
+                  </div>
+                  <div className="w-full h-4 bg-black/30 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-green-400 to-emerald-400 transition-all duration-1000 rounded-full"
+                      style={{ width: `${(totalFocusMinutes % 100)}%` }}
+                    ></div>
+                  </div>
+                </div>
               </div>
+            </div>
+
+            {/* Milestones */}
+            <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10">
+              <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                <span>🏆</span> Milestones
+              </h3>
+              <div className="grid md:grid-cols-2 gap-4">
+                {[
+                  { level: 5, label: 'First Week', achieved: treeLevel >= 5, icon: '🌿' },
+                  { level: 10, label: 'Consistency Master', achieved: treeLevel >= 10, icon: '🌳' },
+                  { level: 15, label: 'Learning Legend', achieved: treeLevel >= 15, icon: '🌲' },
+                  { level: 20, label: 'Growth Guru', achieved: treeLevel >= 20, icon: '🎄' },
+                  { sessions: 50, label: '50 Sessions', achieved: completedSessions >= 50, icon: '⚡' },
+                  { streak: 7, label: '7 Day Streak', achieved: streakDays >= 7, icon: '🔥' },
+                ].map((milestone, idx) => (
+                  <div 
+                    key={idx}
+                    className={`p-4 rounded-lg border transition-all ${
+                      milestone.achieved 
+                        ? 'bg-green-500/20 border-green-500/50' 
+                        : 'bg-white/5 border-white/10 opacity-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-3xl">{milestone.icon}</span>
+                      <div>
+                        <div className="font-semibold">{milestone.label}</div>
+                        <div className="text-sm text-gray-400">
+                          {milestone.level && `Level ${milestone.level}`}
+                          {milestone.sessions && `${milestone.sessions} sessions`}
+                          {milestone.streak && `${milestone.streak} day streak`}
+                          {milestone.achieved && <span className="text-green-400 ml-2">✓</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Motivational Quote */}
+            <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 backdrop-blur-sm rounded-xl p-6 border border-purple-500/20 text-center">
+              <p className="text-lg italic text-gray-300">
+                "{streakDays > 10 ? 'Success is the sum of small efforts repeated day in and day out.' : 
+                  streakDays > 5 ? 'The secret of getting ahead is getting started.' : 
+                  'A journey of a thousand miles begins with a single step.'}"
+              </p>
+              <p className="text-sm text-gray-500 mt-2">
+                Keep growing! 🌱
+              </p>
             </div>
           </div>
         )}
-      </div>
+        </div>
     </div>
   );
 }
+        
