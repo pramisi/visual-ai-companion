@@ -6,7 +6,6 @@ import os
 from dotenv import load_dotenv
 import google.generativeai as genai
 import json
-import re
 
 load_dotenv()
 
@@ -15,8 +14,10 @@ app = FastAPI(title="Visual AI Companion API", version="1.0.0")
 # CORS - Allow frontend to connect
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000",
-                   "https://visual-ai-companion.vercel.app"],
+    allow_origins=[
+        "http://localhost:3000",
+        "https://visual-ai-companion.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -29,11 +30,15 @@ if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
     gemini_model = genai.GenerativeModel('gemini-flash-latest')
 
-# Models
+# ============================================================================
+# MODELS
+# ============================================================================
+
+# Mind Map Models
 class MindMapRequest(BaseModel):
     topic: str
     depth: str = "medium"
-    mode: str = "roadmap"  # "roadmap" or "deepdive"
+    mode: str = "roadmap"
 
 class Node(BaseModel):
     id: str
@@ -52,7 +57,45 @@ class MindMapResponse(BaseModel):
     edges: List[Edge]
     title: str
 
-# Fallback templates if AI is not available
+# Study Plan Models
+class StudyPlanRequest(BaseModel):
+    topic: str
+    weeks: int = 4
+    hours_per_day: int = 2
+    difficulty: str = "intermediate"
+
+class WeekPlan(BaseModel):
+    week: int
+    title: str
+    topics: List[str]
+    daily_hours: int
+    goals: List[str]
+
+class StudyPlanResponse(BaseModel):
+    topic: str
+    total_weeks: int
+    daily_hours: int
+    difficulty: str
+    weeks: List[WeekPlan]
+    estimated_total_hours: int
+
+# Chat Models
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    messages: List[ChatMessage]
+    mode: str = "chat"
+
+class ChatResponse(BaseModel):
+    message: str
+    mode: str
+
+# ============================================================================
+# TEMPLATES
+# ============================================================================
+
 ROADMAP_TEMPLATES = {
     "machine learning": {
         "prerequisites": ["Python Programming", "Linear Algebra & Calculus", "Statistics & Probability"],
@@ -71,6 +114,10 @@ ROADMAP_TEMPLATES = {
         "projects": ["Beginner Project", "Intermediate Project", "Advanced Project"]
     }
 }
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
 
 def generate_ai_deepdive(topic: str) -> dict:
     """Use AI to generate detailed concept breakdown"""
@@ -132,15 +179,8 @@ Return ONLY valid JSON (no markdown, no explanations):
             print(f"✓ Deep dive generated for: {topic}")
             return deepdive
         else:
-            print("Invalid deepdive structure")
-            return {
-                "types": ["Type 1", "Type 2", "Type 3"],
-                "formulas": ["Formula 1", "Formula 2", "Formula 3"],
-                "examples": ["Example 1", "Example 2", "Example 3"],
-                "usecases": ["Use Case 1", "Use Case 2", "Use Case 3"],
-                "comparisons": ["Comparison 1", "Comparison 2"],
-                "bestpractices": ["Practice 1", "Practice 2", "Practice 3"]
-            }
+            raise ValueError("Invalid structure")
+            
     except Exception as e:
         print(f"Deep dive generation failed: {e}")
         return {
@@ -203,9 +243,8 @@ Be specific, practical, concise (max 50 characters per item)."""
             print(f"✓ Successfully generated AI roadmap for: {topic}")
             return roadmap
         else:
-            print("Invalid roadmap structure, using fallback")
-            return ROADMAP_TEMPLATES.get("default")
-        
+            raise ValueError("Invalid structure")
+            
     except Exception as e:
         print(f"AI roadmap generation failed: {e}")
         return ROADMAP_TEMPLATES.get("default")
@@ -247,7 +286,6 @@ def create_hierarchical_tree(topic: str, data: dict, branch_configs: list, mode:
     
     for key, label in branch_configs:
         if key in data:
-            # Branch header (level 1)
             branch_x = start_x + (branch_index * branch_width)
             branch_id = str(node_id)
             
@@ -258,7 +296,6 @@ def create_hierarchical_tree(topic: str, data: dict, branch_configs: list, mode:
                 "position": {"x": branch_x, "y": 150}
             })
             
-            # Connect root to branch
             edges.append({
                 "id": f"e{root_id}-{branch_id}",
                 "source": root_id,
@@ -267,16 +304,10 @@ def create_hierarchical_tree(topic: str, data: dict, branch_configs: list, mode:
             })
             node_id += 1
             
-            # Sub-items (level 2)
             items = data[key]
-            
             for idx, item in enumerate(items):
                 item_id = str(node_id)
-                
-                # Truncate text
                 item_label = item if len(item) <= 45 else item[:42] + "..."
-                
-                # Position items vertically under branch
                 item_y = 300 + (idx * 120)
                 
                 nodes.append({
@@ -286,7 +317,6 @@ def create_hierarchical_tree(topic: str, data: dict, branch_configs: list, mode:
                     "position": {"x": branch_x, "y": item_y}
                 })
                 
-                # Connect branch to item
                 edges.append({
                     "id": f"e{branch_id}-{item_id}",
                     "source": branch_id,
@@ -310,7 +340,6 @@ def create_horizontal_roadmap(topic: str, data: dict, branch_configs: list, mode
     edges = []
     node_id = 1
     
-    # Main topic node (center)
     nodes.append({
         "id": str(node_id),
         "type": "input",
@@ -320,14 +349,12 @@ def create_horizontal_roadmap(topic: str, data: dict, branch_configs: list, mode
     main_node_id = str(node_id)
     node_id += 1
     
-    # Calculate positions for branches
     y_offset = 150
     branch_parent_ids = {}
     max_sub_y = y_offset
     
     for key, label, x_offset in branch_configs:
         if key in data:
-            # Branch header
             branch_id = str(node_id)
             nodes.append({
                 "id": branch_id,
@@ -337,7 +364,6 @@ def create_horizontal_roadmap(topic: str, data: dict, branch_configs: list, mode
             })
             branch_parent_ids[key] = branch_id
             
-            # Connect to main topic
             edges.append({
                 "id": f"e{main_node_id}-{branch_id}",
                 "source": main_node_id,
@@ -346,18 +372,15 @@ def create_horizontal_roadmap(topic: str, data: dict, branch_configs: list, mode
             })
             node_id += 1
             
-            # Add sub-items
             items = data[key]
             sub_y = y_offset + 150
             
             for idx, item in enumerate(items):
                 item_id = str(node_id)
-                
                 row = idx // 2
                 col = idx % 2
                 sub_x_offset = x_offset + (col * 200) - 100
                 sub_y_offset = sub_y + (row * 100)
-                
                 item_label = item if len(item) <= 50 else item[:47] + "..."
                 
                 nodes.append({
@@ -378,7 +401,6 @@ def create_horizontal_roadmap(topic: str, data: dict, branch_configs: list, mode
             
             max_sub_y = max(max_sub_y, sub_y + (len(items) // 2) * 100)
     
-    # Add final mastery node
     mastery_id = str(node_id)
     nodes.append({
         "id": mastery_id,
@@ -387,7 +409,6 @@ def create_horizontal_roadmap(topic: str, data: dict, branch_configs: list, mode
         "position": {"x": 500, "y": max_sub_y + 200}
     })
     
-    # Connect to mastery
     if "advanced" in branch_parent_ids:
         edges.append({
             "id": f"e{branch_parent_ids['advanced']}-{mastery_id}",
@@ -409,7 +430,10 @@ def create_horizontal_roadmap(topic: str, data: dict, branch_configs: list, mode
         title=f"Complete Learning Roadmap: {topic}"
     )
 
-# Routes
+# ============================================================================
+# API ROUTES
+# ============================================================================
+
 @app.get("/")
 async def root():
     ai_status = "enabled (Google Gemini)" if gemini_model else "disabled (no API key)"
@@ -431,7 +455,6 @@ async def generate_mindmap(request: MindMapRequest):
         topic = request.topic
         mode = request.mode
         
-        # Generate different data based on mode
         if mode == "deepdive":
             data = generate_ai_deepdive(topic)
             branch_configs = [
@@ -442,7 +465,6 @@ async def generate_mindmap(request: MindMapRequest):
                 ("comparisons", "⚖️ Comparisons"),
                 ("bestpractices", "✨ Best Practices")
             ]
-            # Use hierarchical layout for deep dive
             return create_hierarchical_tree(topic, data, branch_configs, mode)
         else:
             data = get_roadmap_data(topic)
@@ -454,33 +476,11 @@ async def generate_mindmap(request: MindMapRequest):
                 ("tools", "🛠️ Tools & Tech", 400),
                 ("projects", "💼 Projects", 600)
             ]
-            # Use horizontal layout for roadmap
             return create_horizontal_roadmap(topic, data, branch_configs, mode)
         
     except Exception as e:
         print(f"Error in generate_mindmap: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-class StudyPlanRequest(BaseModel):
-    topic: str
-    weeks: int = 4
-    hours_per_day: int = 2
-    difficulty: str = "intermediate"
-
-class WeekPlan(BaseModel):
-    week: int
-    title: str
-    topics: List[str]
-    daily_hours: int
-    goals: List[str]
-
-class StudyPlanResponse(BaseModel):
-    topic: str
-    total_weeks: int
-    daily_hours: int
-    difficulty: str
-    weeks: List[WeekPlan]
-    estimated_total_hours: int
 
 @app.post("/api/generate-study-plan", response_model=StudyPlanResponse)
 async def generate_study_plan(request: StudyPlanRequest):
@@ -491,16 +491,15 @@ async def generate_study_plan(request: StudyPlanRequest):
         daily_hours = request.hours_per_day
         
         if not GOOGLE_API_KEY:
-            # Fallback template
-            weeks_data = []
-            for week in range(1, num_weeks + 1):
-                weeks_data.append(WeekPlan(
+            weeks_data = [
+                WeekPlan(
                     week=week,
                     title=f"Week {week}: {'Basics' if week <= 2 else 'Advanced'}",
                     topics=[f"Topic {i}" for i in range(1, 4)],
                     daily_hours=daily_hours,
                     goals=[f"Goal {i}" for i in range(1, 3)]
-                ))
+                ) for week in range(1, num_weeks + 1)
+            ]
             
             return StudyPlanResponse(
                 topic=topic,
@@ -511,7 +510,6 @@ async def generate_study_plan(request: StudyPlanRequest):
                 estimated_total_hours=num_weeks * 7 * daily_hours
             )
         
-        # Use AI to generate study plan
         prompt = f"""Create a detailed {num_weeks}-week study plan for: "{topic}"
 
 Student details:
@@ -541,7 +539,6 @@ Be specific and progressive - each week should build on previous weeks."""
         response = model.generate_content(prompt)
         response_text = response.text.strip()
         
-        # Clean markdown
         if "```json" in response_text:
             response_text = response_text.split("```json")[1].split("```")[0]
         elif "```" in response_text:
@@ -554,16 +551,15 @@ Be specific and progressive - each week should build on previous weeks."""
         response_text = response_text.strip()
         plan_data = json.loads(response_text)
         
-        # Format weeks
-        weeks_list = []
-        for week_data in plan_data.get("weeks", []):
-            weeks_list.append(WeekPlan(
-                week=week_data.get("week", 1),
-                title=week_data.get("title", f"Week {week_data.get('week', 1)}"),
+        weeks_list = [
+            WeekPlan(
+                week=week_data.get("week", i+1),
+                title=week_data.get("title", f"Week {i+1}"),
                 topics=week_data.get("topics", []),
                 daily_hours=daily_hours,
                 goals=week_data.get("goals", [])
-            ))
+            ) for i, week_data in enumerate(plan_data.get("weeks", []))
+        ]
         
         return StudyPlanResponse(
             topic=topic,
@@ -576,16 +572,15 @@ Be specific and progressive - each week should build on previous weeks."""
         
     except Exception as e:
         print(f"Study plan generation failed: {e}")
-        # Return fallback
-        weeks_data = []
-        for week in range(1, request.weeks + 1):
-            weeks_data.append(WeekPlan(
+        weeks_data = [
+            WeekPlan(
                 week=week,
                 title=f"Week {week}: {'Foundation' if week <= 2 else 'Advanced Concepts'}",
                 topics=[f"Core Topic {i}" for i in range(1, 4)],
                 daily_hours=request.hours_per_day,
                 goals=[f"Master skill {i}" for i in range(1, 3)]
-            ))
+            ) for week in range(1, request.weeks + 1)
+        ]
         
         return StudyPlanResponse(
             topic=request.topic,
@@ -595,6 +590,90 @@ Be specific and progressive - each week should build on previous weeks."""
             weeks=weeks_data,
             estimated_total_hours=request.weeks * 7 * request.hours_per_day
         )
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    """AI-powered chat assistant for learning"""
+    try:
+        if not GOOGLE_API_KEY:
+            return ChatResponse(
+                message="AI chat is not available. Please configure API key.",
+                mode=request.mode
+            )
+        
+        user_message = request.messages[-1].content if request.messages else ""
+        
+        conversation = []
+        for msg in request.messages[:-1]:
+            conversation.append(f"{msg.role}: {msg.content}")
+        
+        conversation_context = "\n".join(conversation[-5:])
+        
+        if request.mode == "notes":
+            system_prompt = """You are a study assistant that creates concise, well-structured notes.
+
+When given a topic or text:
+1. Extract key points
+2. Organize in bullet points
+3. Use clear, simple language
+4. Highlight important terms
+5. Keep it brief but comprehensive
+
+Format your response with:
+- Main headings with **bold**
+- Bullet points for key concepts
+- Brief explanations 
+- Use plain text for formulas (avoid LaTeX $ symbols)"""
+
+            prompt = f"{system_prompt}\n\nCreate study notes for:\n{user_message}"
+            
+        elif request.mode == "explain":
+            system_prompt = """You are a patient tutor who explains complex concepts simply.
+
+When explaining:
+1. Start with a simple analogy
+2. Break down into digestible parts
+3. Use examples students can relate to
+4. Avoid jargon or explain it clearly
+5. Write formulas in plain text (e.g., "y = mx + b" instead of "$y = mx + b$")
+6. Check understanding with a simple question at the end"""
+
+            prompt = f"{system_prompt}\n\nExplain this concept:\n{user_message}"
+            
+        else:
+            system_prompt = """You are a helpful study companion for students.
+
+You help with:
+- Answering questions clearly
+- Explaining concepts
+- Study tips and motivation
+- Breaking down complex topics
+- Providing examples
+
+Be friendly, encouraging, and concise. Keep responses focused and helpful."""
+
+            if conversation_context:
+                prompt = f"{system_prompt}\n\nConversation so far:\n{conversation_context}\n\nStudent: {user_message}\n\nYour response:"
+            else:
+                prompt = f"{system_prompt}\n\nStudent: {user_message}\n\nYour response:"
+        
+        model = genai.GenerativeModel('gemini-flash-latest')
+        response = model.generate_content(prompt)
+        
+        response_text = response.text.strip()
+        
+        return ChatResponse(
+            message=response_text,
+            mode=request.mode
+        )
+        
+    except Exception as e:
+        print(f"Chat error: {e}")
+        return ChatResponse(
+            message="Sorry, I encountered an error. Please try again.",
+            mode=request.mode
+        )
+
 @app.post("/api/start-focus")
 async def start_focus(task: str, minutes: int = 25):
     """Start a focus session"""
