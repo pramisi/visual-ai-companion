@@ -29,13 +29,18 @@ const [studyPlan, setStudyPlan] = useState<any>(null);
 const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
 const [completedSessions, setCompletedSessions] = useState(0);
 const [totalFocusMinutes, setTotalFocusMinutes] = useState(0);
+const [chatMessages, setChatMessages] = useState<Array<{role: string, content: string}>>([]);
+const [chatInput, setChatInput] = useState('');
+const [isChatLoading, setIsChatLoading] = useState(false);
+const [chatMode, setChatMode] = useState<'chat' | 'notes' | 'explain'>('chat');
 
   const tabs = [
-    { id: 'mindmap', name: 'Mind Map', icon: Brain, color: 'purple' },
-    { id: 'study', name: 'Study Plan', icon: Target, color: 'blue' },
-    { id: 'focus', name: 'Focus Timer', icon: Timer, color: 'orange' },
-    { id: 'growth', name: 'My Growth', icon: TreePine, color: 'green' },
-  ];
+  { id: 'mindmap', name: 'Mind Map', icon: Brain, color: 'purple' },
+  { id: 'study', name: 'Study Plan', icon: Target, color: 'blue' },
+  { id: 'chat', name: 'AI Chat', icon: Sparkles, color: 'cyan' },
+  { id: 'focus', name: 'Focus Timer', icon: Timer, color: 'orange' },
+  { id: 'growth', name: 'My Growth', icon: TreePine, color: 'green' },
+];
 
   // Timer countdown
   useEffect(() => {
@@ -184,6 +189,52 @@ const handleSessionComplete = () => {
 const requestNotificationPermission = () => {
   if ('Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission();
+  }
+};
+
+const sendChatMessage = async () => {
+  if (!chatInput.trim()) return;
+  
+  const newMessage = { role: 'user', content: chatInput };
+  const updatedMessages = [...chatMessages, newMessage];
+  
+  setChatMessages(updatedMessages);
+  setChatInput('');
+  setIsChatLoading(true);
+  
+  try {
+    const response = await fetch('http://localhost:8000/api/chat', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        messages: updatedMessages,
+        mode: chatMode
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      console.error('API Error:', error);
+      throw new Error('Failed to get response');
+    }
+    
+    const data = await response.json();
+    setChatMessages(prev => [...prev, { 
+      role: 'assistant', 
+      content: data.message 
+    }]);
+    
+  } catch (error) {
+    console.error('Chat error:', error);
+    setChatMessages(prev => [...prev, { 
+      role: 'assistant', 
+      content: 'Sorry, I couldn\'t process that. Please try again.' 
+    }]);
+  } finally {
+    setIsChatLoading(false);
   }
 };
 
@@ -537,6 +588,215 @@ const requestNotificationPermission = () => {
                 </div>
               </div>
             )}
+          </div>
+        )}
+        {/* AI Chat Tab */}
+        {activeTab === 'chat' && (
+          <div className="space-y-6 animate-fade-in max-w-4xl mx-auto">
+            <div className="flex justify-between items-center">
+              <h2 className="text-3xl font-bold">AI Study Assistant</h2>
+              <button
+                onClick={() => setChatMessages([])}
+                className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition-all text-sm"
+              >
+                Clear Chat
+              </button>
+            </div>
+
+            {/* Mode Selector */}
+            <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
+              <label className="block text-sm text-gray-400 mb-3">Assistant Mode:</label>
+              <div className="grid md:grid-cols-3 gap-3">
+                <button
+                  onClick={() => setChatMode('chat')}
+                  className={`p-4 rounded-lg transition-all ${
+                    chatMode === 'chat'
+                      ? 'bg-cyan-500 text-white'
+                      : 'bg-white/10 hover:bg-white/20'
+                  }`}
+                >
+                  <div className="font-semibold mb-1">💬 Chat</div>
+                  <div className="text-xs opacity-80">Ask questions & discuss</div>
+                </button>
+
+                <button
+                  onClick={() => setChatMode('notes')}
+                  className={`p-4 rounded-lg transition-all ${
+                    chatMode === 'notes'
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-white/10 hover:bg-white/20'
+                  }`}
+                >
+                  <div className="font-semibold mb-1">📝 Make Notes</div>
+                  <div className="text-xs opacity-80">Create study summaries</div>
+                </button>
+
+                <button
+                  onClick={() => setChatMode('explain')}
+                  className={`p-4 rounded-lg transition-all ${
+                    chatMode === 'explain'
+                      ? 'bg-purple-500 text-white'
+                      : 'bg-white/10 hover:bg-white/20'
+                  }`}
+                >
+                  <div className="font-semibold mb-1">🎓 Explain</div>
+                  <div className="text-xs opacity-80">Simplify complex topics</div>
+                </button>
+              </div>
+            </div>
+
+            {/* Chat Messages */}
+            <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 h-[500px] flex flex-col">
+              {/* Messages Container */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                {chatMessages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center">
+                    <Sparkles className="w-16 h-16 text-cyan-400 mb-4" />
+                    <h3 className="text-xl font-bold mb-2">AI Study Assistant Ready!</h3>
+                    <p className="text-gray-400 max-w-md mb-6">
+                      Ask me anything about your studies. I can answer questions, 
+                      create notes, or explain complex concepts in simple terms.
+                    </p>
+                    <div className="grid md:grid-cols-2 gap-3 w-full max-w-lg">
+                      {[
+                        { q: "Explain photosynthesis", icon: "🌿" },
+                        { q: "Make notes on Python loops", icon: "📝" },
+                        { q: "What is quantum computing?", icon: "💻" },
+                        { q: "Summarize World War 2", icon: "📚" }
+                      ].map((example, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            setChatInput(example.q);
+                          }}
+                          className="p-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-sm text-left transition-all"
+                        >
+                          <span className="mr-2">{example.icon}</span>
+                          {example.q}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  chatMessages.map((msg, idx) => (
+                    <div
+                      key={idx}
+                      className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div
+                        className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+                          msg.role === 'user'
+                            ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white'
+                            : 'bg-white/10 text-gray-100'
+                        }`}
+                      >
+                        {msg.role === 'assistant' ? (
+  <div className="prose prose-invert prose-sm max-w-none">
+    {(msg.content || '').split('\n').map((line, i) => {
+      // Check if line contains LaTeX ($ symbols)
+      const hasLatex = line.includes('$');
+      
+      return (
+        <p key={i} className="mb-2 last:mb-0">
+          {hasLatex ? (
+            <code className="bg-black/30 px-2 py-1 rounded text-cyan-300">
+              {line}
+            </code>
+          ) : line.startsWith('**') && line.endsWith('**') ? (
+            <strong className="text-cyan-400">
+              {line.replace(/\*\*/g, '')}
+            </strong>
+          ) : line.startsWith('- ') ? (
+            <span className="flex items-start gap-2">
+              <span className="text-cyan-400 mt-1">•</span>
+              <span>{line.substring(2)}</span>
+            </span>
+          ) : (
+            line
+          )}
+        </p>
+      );
+    })}
+  </div>
+) : (
+  <p className="whitespace-pre-wrap">{msg.content || ''}</p>
+)}
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                {/* Loading Indicator */}
+                {isChatLoading && (
+                  <div className="flex justify-start">
+                    <div className="bg-white/10 rounded-2xl px-4 py-3">
+                      <div className="flex gap-2">
+                        <div className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce"></div>
+                        <div className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                        <div className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Input Area */}
+              <div className="border-t border-white/10 p-4">
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendChatMessage()}
+                    placeholder={
+                      chatMode === 'chat' ? 'Ask a question...' :
+                      chatMode === 'notes' ? 'Enter topic to create notes...' :
+                      'Enter concept to explain...'
+                    }
+                    className="flex-1 px-4 py-3 rounded-lg bg-white/10 border border-white/20 focus:border-cyan-500 outline-none transition-all"
+                    disabled={isChatLoading}
+                  />
+                  <button
+                    onClick={sendChatMessage}
+                    disabled={!chatInput.trim() || isChatLoading}
+                    className="px-6 py-3 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-500 font-semibold hover:scale-105 transition-transform disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                  >
+                    {isChatLoading ? (
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      'Send'
+                    )}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Press Enter to send • Shift+Enter for new line
+                </p>
+              </div>
+            </div>
+
+            {/* Tips */}
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="bg-gradient-to-br from-cyan-500/10 to-blue-500/10 backdrop-blur-sm rounded-xl p-4 border border-cyan-500/20">
+                <h4 className="font-bold mb-2 text-cyan-400">💬 Chat Mode</h4>
+                <p className="text-sm text-gray-300">
+                  Have conversations, ask follow-up questions, get clarifications
+                </p>
+              </div>
+
+              <div className="bg-gradient-to-br from-blue-500/10 to-purple-500/10 backdrop-blur-sm rounded-xl p-4 border border-blue-500/20">
+                <h4 className="font-bold mb-2 text-blue-400">📝 Notes Mode</h4>
+                <p className="text-sm text-gray-300">
+                  Get structured, bullet-point summaries perfect for studying
+                </p>
+              </div>
+
+              <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 backdrop-blur-sm rounded-xl p-4 border border-purple-500/20">
+                <h4 className="font-bold mb-2 text-purple-400">🎓 Explain Mode</h4>
+                <p className="text-sm text-gray-300">
+                  Complex concepts broken down with analogies and examples
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
