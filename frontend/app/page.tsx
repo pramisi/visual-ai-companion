@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { Sparkles, Brain, Target, Timer, TreePine, Zap } from 'lucide-react';
+import { useSession, signOut } from 'next-auth/react';
+import { useCallback } from 'react';
 
 export default function LandingPage() {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
