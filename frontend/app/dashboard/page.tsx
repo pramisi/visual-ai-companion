@@ -100,7 +100,9 @@ export default function Dashboard() {
     if (!topic.trim()) return;
     setIsGenerating(true);
     try {
-      const response = await fetch('https://visual-ai-companion.onrender.com/api/generate-mindmap', {
+       // ✅ Correct
+const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+const response = await fetch(`${backendUrl}/api/generate-mindmap`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic, depth: 'medium', mode: mapType })
@@ -120,8 +122,8 @@ export default function Dashboard() {
     if (!studyPlanTopic.trim()) return;
     setIsGeneratingPlan(true);
     try {
-      const response = await fetch('https://visual-ai-companion.onrender.com/api/generate-study-plan', {
-        method: 'POST',
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+      const response = await fetch(`${backendUrl}/api/generate-study-plan`, {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           topic: studyPlanTopic,
