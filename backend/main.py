@@ -179,7 +179,11 @@ Keep each item under 45 characters. Be specific and technical."""
 
 def generate_ai_roadmap(topic: str) -> dict:
     if not groq_client:
+        print("❌ NO GROQ CLIENT - check GROQ_API_KEY in .env")
         return ROADMAP_TEMPLATES["default"]
+    
+    print(f"✓ Groq client exists, generating roadmap for: {topic}")
+   
 
     prompt = f"""Create a learning roadmap for: "{topic}"
 
@@ -209,10 +213,7 @@ Max 50 characters per item. Be specific and practical."""
         return ROADMAP_TEMPLATES["default"]
 
 def get_roadmap_data(topic: str):
-    topic_lower = topic.lower()
-    for key in ROADMAP_TEMPLATES:
-        if key in topic_lower and key != "default":
-            return ROADMAP_TEMPLATES[key]
+    # Always use AI generation
     return generate_ai_roadmap(topic)
 
 # ============================================================================
@@ -365,7 +366,7 @@ async def root():
         "message": "Visual AI Companion API",
         "version": "1.0.0",
         "status": "active",
-        "ai": "Groq (llama-3.1-8b-instant)" if groq_client else "disabled"
+        "ai": "Groq (llama3-8b-8192)" if groq_client else "disabled"
     }
 
 @app.get("/health")
