@@ -124,6 +124,7 @@ const response = await fetch(`${backendUrl}/api/generate-mindmap`, {
     try {
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
       const response = await fetch(`${backendUrl}/api/generate-study-plan`, {
+        method: 'POST', 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           topic: studyPlanTopic,
