@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Any
 import os
 from dotenv import load_dotenv
-import google.generativeai as genai
+from groq import Groq
 import json
 
 load_dotenv()
@@ -23,18 +23,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Google Gemini
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-gemini_model = None
-if GOOGLE_API_KEY:
-    genai.configure(api_key=GOOGLE_API_KEY)
-    gemini_model = genai.GenerativeModel('gemini-flash-latest')
+# Initialize Groq
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 # ============================================================================
 # MODELS
 # ============================================================================
 
-# Mind Map Models
 class MindMapRequest(BaseModel):
     topic: str
     depth: str = "medium"
@@ -57,7 +53,6 @@ class MindMapResponse(BaseModel):
     edges: List[Edge]
     title: str
 
-# Study Plan Models
 class StudyPlanRequest(BaseModel):
     topic: str
     weeks: int = 4
@@ -79,7 +74,6 @@ class StudyPlanResponse(BaseModel):
     weeks: List[WeekPlan]
     estimated_total_hours: int
 
-# Chat Models
 class ChatMessage(BaseModel):
     role: str
     content: str
@@ -93,18 +87,10 @@ class ChatResponse(BaseModel):
     mode: str
 
 # ============================================================================
-# TEMPLATES
+# TEMPLATES (fallback when no API key)
 # ============================================================================
 
 ROADMAP_TEMPLATES = {
-    "machine learning": {
-        "prerequisites": ["Python Programming", "Linear Algebra & Calculus", "Statistics & Probability"],
-        "foundations": ["Supervised Learning Algorithms", "Unsupervised Learning", "Model Evaluation Metrics"],
-        "intermediate": ["Neural Networks Basics", "Deep Learning Fundamentals", "CNNs & RNNs"],
-        "advanced": ["Transformer Architecture", "GANs & Autoencoders", "Reinforcement Learning"],
-        "tools": ["TensorFlow/Keras", "PyTorch", "Scikit-learn & Pandas"],
-        "projects": ["Image Classification System", "NLP Sentiment Analyzer", "Recommendation Engine"]
-    },
     "default": {
         "prerequisites": ["Basic Understanding", "Required Tools Setup", "Foundational Knowledge"],
         "foundations": ["Core Concepts", "Fundamental Principles", "Basic Techniques"],
@@ -116,13 +102,39 @@ ROADMAP_TEMPLATES = {
 }
 
 # ============================================================================
+# HELPER - Groq API call
+# ============================================================================
+
+def groq_chat(prompt: str, system: str = "You are a helpful assistant. Return only valid JSON.") -> str:
+    """Call Groq API and return response text"""
+    response = groq_client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.7,
+        max_tokens=2000,
+    )
+    return response.choices[0].message.content.strip()
+
+def clean_json_response(text: str) -> str:
+    """Strip markdown code fences from JSON response"""
+    if "```json" in text:
+        text = text.split("```json")[1].split("```")[0]
+    elif "```" in text:
+        parts = text.split("```")
+        for part in parts:
+            if "{" in part and "}" in part:
+                return part.strip()
+    return text.strip()
+
+# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
 def generate_ai_deepdive(topic: str) -> dict:
-    """Use AI to generate detailed concept breakdown"""
-    if not GOOGLE_API_KEY:
-        print("No API key - using fallback")
+    if not groq_client:
         return {
             "types": ["Type 1", "Type 2", "Type 3"],
             "formulas": ["Formula 1", "Formula 2", "Formula 3"],
@@ -131,58 +143,31 @@ def generate_ai_deepdive(topic: str) -> dict:
             "comparisons": ["Comparison 1", "Comparison 2"],
             "bestpractices": ["Best Practice 1", "Best Practice 2"]
         }
-    
-    prompt = f"""You are an expert technical educator. Create a comprehensive deep-dive analysis of: "{topic}"
 
-Provide detailed, specific information in these 6 categories:
+    prompt = f"""Create a comprehensive deep-dive analysis of: "{topic}"
 
-1. types: List 3-5 SPECIFIC types/variations with their actual names
-2. formulas: Provide actual mathematical formulas or technical definitions
-3. examples: Give concrete code examples or practical demonstrations
-4. usecases: Explain when and why to use each type
-5. comparisons: Compare different approaches
-6. bestpractices: Provide actionable advice
-
-CRITICAL: Be extremely specific and technical. Use real names, actual formulas, concrete examples.
-CRITICAL: Keep each item under 45 characters. Be extremely concise.
-
-Return ONLY valid JSON (no markdown, no explanations):
+Return ONLY valid JSON with these exact keys (no markdown, no extra text):
 {{
-  "types": ["Type 1", "Type 2", "Type 3"],
-  "formulas": ["Formula 1", "Formula 2", "Formula 3"],
-  "examples": ["Example 1", "Example 2", "Example 3"],
-  "usecases": ["Use case 1", "Use case 2", "Use case 3"],
-  "comparisons": ["Comparison 1", "Comparison 2"],
-  "bestpractices": ["Practice 1", "Practice 2", "Practice 3"]
-}}"""
+  "types": ["specific type 1", "specific type 2", "specific type 3"],
+  "formulas": ["formula or definition 1", "formula 2", "formula 3"],
+  "examples": ["concrete example 1", "example 2", "example 3"],
+  "usecases": ["use case 1", "use case 2", "use case 3"],
+  "comparisons": ["comparison 1", "comparison 2"],
+  "bestpractices": ["practice 1", "practice 2", "practice 3"]
+}}
+
+Keep each item under 45 characters. Be specific and technical."""
 
     try:
-        model = genai.GenerativeModel('gemini-flash-latest')
-        response = model.generate_content(prompt)
-        response_text = response.text.strip()
-        
-        # Clean markdown
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0]
-        elif "```" in response_text:
-            parts = response_text.split("```")
-            for part in parts:
-                if "{" in part and "}" in part:
-                    response_text = part
-                    break
-        
-        response_text = response_text.strip()
-        deepdive = json.loads(response_text)
-        
+        text = groq_chat(prompt)
+        text = clean_json_response(text)
+        result = json.loads(text)
         required_keys = ["types", "formulas", "examples", "usecases", "comparisons", "bestpractices"]
-        if all(key in deepdive for key in required_keys):
-            print(f"✓ Deep dive generated for: {topic}")
-            return deepdive
-        else:
-            raise ValueError("Invalid structure")
-            
+        if all(k in result for k in required_keys):
+            return result
+        raise ValueError("Missing keys")
     except Exception as e:
-        print(f"Deep dive generation failed: {e}")
+        print(f"Deep dive failed: {e}")
         return {
             "types": ["Type 1", "Type 2", "Type 3"],
             "formulas": ["Formula 1", "Formula 2", "Formula 3"],
@@ -193,80 +178,52 @@ Return ONLY valid JSON (no markdown, no explanations):
         }
 
 def generate_ai_roadmap(topic: str) -> dict:
-    """Use Google Gemini AI to generate a custom learning roadmap"""
-    if not gemini_model:
-        print("No API key - using fallback template")
-        return ROADMAP_TEMPLATES.get("default")
-    
-    prompt = f"""Create a comprehensive learning roadmap for: "{topic}"
+    if not groq_client:
+        return ROADMAP_TEMPLATES["default"]
 
-You are an expert curriculum designer. Generate a structured learning path with these 6 categories:
+    prompt = f"""Create a learning roadmap for: "{topic}"
 
-1. prerequisites: List 3-4 essential things learners must know BEFORE starting
-2. foundations: List 3-4 core fundamental concepts to master FIRST
-3. intermediate: List 3-4 intermediate level topics to learn NEXT
-4. advanced: List 3-4 advanced/expert concepts for mastery
-5. tools: List 3-4 essential tools, frameworks, or technologies
-6. projects: List 3 hands-on projects (beginner, intermediate, advanced)
-
-IMPORTANT: Return ONLY valid JSON (no markdown, no explanations):
+Return ONLY valid JSON (no markdown, no extra text):
 {{
   "prerequisites": ["item1", "item2", "item3"],
   "foundations": ["item1", "item2", "item3"],
   "intermediate": ["item1", "item2", "item3"],
   "advanced": ["item1", "item2", "item3"],
   "tools": ["item1", "item2", "item3"],
-  "projects": ["item1", "item2", "item3"]
+  "projects": ["beginner project", "intermediate project", "advanced project"]
 }}
 
-Be specific, practical, concise (max 50 characters per item)."""
+Max 50 characters per item. Be specific and practical."""
 
     try:
-        response = gemini_model.generate_content(prompt)
-        response_text = response.text.strip()
-        
-        # Clean markdown
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0]
-        elif "```" in response_text:
-            parts = response_text.split("```")
-            for part in parts:
-                if "{" in part and "}" in part:
-                    response_text = part
-                    break
-        
-        response_text = response_text.strip()
-        roadmap = json.loads(response_text)
-        
+        text = groq_chat(prompt)
+        text = clean_json_response(text)
+        result = json.loads(text)
         required_keys = ["prerequisites", "foundations", "intermediate", "advanced", "tools", "projects"]
-        if all(key in roadmap for key in required_keys):
-            print(f"✓ Successfully generated AI roadmap for: {topic}")
-            return roadmap
-        else:
-            raise ValueError("Invalid structure")
-            
+        if all(k in result for k in required_keys):
+            print(f"✓ Roadmap generated for: {topic}")
+            return result
+        raise ValueError("Missing keys")
     except Exception as e:
-        print(f"AI roadmap generation failed: {e}")
-        return ROADMAP_TEMPLATES.get("default")
+        print(f"AI roadmap failed: {e}")
+        return ROADMAP_TEMPLATES["default"]
 
 def get_roadmap_data(topic: str):
-    """Get roadmap data - try AI first, then templates"""
     topic_lower = topic.lower()
     for key in ROADMAP_TEMPLATES:
         if key in topic_lower and key != "default":
-            print(f"Using cached template for: {key}")
             return ROADMAP_TEMPLATES[key]
-    
-    print(f"Generating AI roadmap for: {topic}")
     return generate_ai_roadmap(topic)
 
+# ============================================================================
+# LAYOUT BUILDERS
+# ============================================================================
+
 def create_hierarchical_tree(topic: str, data: dict, branch_configs: list, mode: str):
-    """Create a top-down hierarchical tree layout"""
     nodes = []
     edges = []
     node_id = 1
-    
-    # Root node at top
+
     nodes.append({
         "id": str(node_id),
         "type": "input",
@@ -275,27 +232,24 @@ def create_hierarchical_tree(topic: str, data: dict, branch_configs: list, mode:
     })
     root_id = str(node_id)
     node_id += 1
-    
-    # Calculate layout
+
     num_branches = len([k for k, _ in branch_configs if k in data])
     branch_width = 300
     total_width = num_branches * branch_width
     start_x = 600 - (total_width / 2) + (branch_width / 2)
-    
     branch_index = 0
-    
+
     for key, label in branch_configs:
         if key in data:
             branch_x = start_x + (branch_index * branch_width)
             branch_id = str(node_id)
-            
+
             nodes.append({
                 "id": branch_id,
                 "type": "default",
                 "data": {"label": label},
                 "position": {"x": branch_x, "y": 150}
             })
-            
             edges.append({
                 "id": f"e{root_id}-{branch_id}",
                 "source": root_id,
@@ -303,43 +257,33 @@ def create_hierarchical_tree(topic: str, data: dict, branch_configs: list, mode:
                 "animated": True
             })
             node_id += 1
-            
-            items = data[key]
-            for idx, item in enumerate(items):
+
+            for idx, item in enumerate(data[key]):
                 item_id = str(node_id)
                 item_label = item if len(item) <= 45 else item[:42] + "..."
-                item_y = 300 + (idx * 120)
-                
                 nodes.append({
                     "id": item_id,
                     "type": "default",
                     "data": {"label": f"• {item_label}"},
-                    "position": {"x": branch_x, "y": item_y}
+                    "position": {"x": branch_x, "y": 300 + (idx * 120)}
                 })
-                
                 edges.append({
                     "id": f"e{branch_id}-{item_id}",
                     "source": branch_id,
                     "target": item_id,
                     "animated": True
                 })
-                
                 node_id += 1
-            
+
             branch_index += 1
-    
-    return MindMapResponse(
-        nodes=nodes,
-        edges=edges,
-        title=f"Deep Dive Analysis: {topic}"
-    )
+
+    return MindMapResponse(nodes=nodes, edges=edges, title=f"Deep Dive: {topic}")
 
 def create_horizontal_roadmap(topic: str, data: dict, branch_configs: list, mode: str):
-    """Create horizontal roadmap layout"""
     nodes = []
     edges = []
     node_id = 1
-    
+
     nodes.append({
         "id": str(node_id),
         "type": "input",
@@ -348,11 +292,11 @@ def create_horizontal_roadmap(topic: str, data: dict, branch_configs: list, mode
     })
     main_node_id = str(node_id)
     node_id += 1
-    
+
     y_offset = 150
     branch_parent_ids = {}
     max_sub_y = y_offset
-    
+
     for key, label, x_offset in branch_configs:
         if key in data:
             branch_id = str(node_id)
@@ -363,7 +307,6 @@ def create_horizontal_roadmap(topic: str, data: dict, branch_configs: list, mode
                 "position": {"x": 500 + x_offset, "y": y_offset}
             })
             branch_parent_ids[key] = branch_id
-            
             edges.append({
                 "id": f"e{main_node_id}-{branch_id}",
                 "source": main_node_id,
@@ -371,36 +314,29 @@ def create_horizontal_roadmap(topic: str, data: dict, branch_configs: list, mode
                 "animated": True
             })
             node_id += 1
-            
-            items = data[key]
+
             sub_y = y_offset + 150
-            
-            for idx, item in enumerate(items):
+            for idx, item in enumerate(data[key]):
                 item_id = str(node_id)
                 row = idx // 2
                 col = idx % 2
-                sub_x_offset = x_offset + (col * 200) - 100
-                sub_y_offset = sub_y + (row * 100)
                 item_label = item if len(item) <= 50 else item[:47] + "..."
-                
                 nodes.append({
                     "id": item_id,
                     "type": "default",
                     "data": {"label": f"• {item_label}"},
-                    "position": {"x": 500 + sub_x_offset, "y": sub_y_offset}
+                    "position": {"x": 500 + x_offset + (col * 200) - 100, "y": sub_y + (row * 100)}
                 })
-                
                 edges.append({
                     "id": f"e{branch_id}-{item_id}",
                     "source": branch_id,
                     "target": item_id,
                     "animated": True
                 })
-                
                 node_id += 1
-            
-            max_sub_y = max(max_sub_y, sub_y + (len(items) // 2) * 100)
-    
+
+            max_sub_y = max(max_sub_y, sub_y + (len(data[key]) // 2) * 100)
+
     mastery_id = str(node_id)
     nodes.append({
         "id": mastery_id,
@@ -408,27 +344,16 @@ def create_horizontal_roadmap(topic: str, data: dict, branch_configs: list, mode
         "data": {"label": "🏆 Master Level"},
         "position": {"x": 500, "y": max_sub_y + 200}
     })
-    
-    if "advanced" in branch_parent_ids:
-        edges.append({
-            "id": f"e{branch_parent_ids['advanced']}-{mastery_id}",
-            "source": branch_parent_ids['advanced'],
-            "target": mastery_id,
-            "animated": True
-        })
-    if "projects" in branch_parent_ids:
-        edges.append({
-            "id": f"e{branch_parent_ids['projects']}-{mastery_id}",
-            "source": branch_parent_ids['projects'],
-            "target": mastery_id,
-            "animated": True
-        })
-    
-    return MindMapResponse(
-        nodes=nodes,
-        edges=edges,
-        title=f"Complete Learning Roadmap: {topic}"
-    )
+    for key in ["advanced", "projects"]:
+        if key in branch_parent_ids:
+            edges.append({
+                "id": f"e{branch_parent_ids[key]}-{mastery_id}",
+                "source": branch_parent_ids[key],
+                "target": mastery_id,
+                "animated": True
+            })
+
+    return MindMapResponse(nodes=nodes, edges=edges, title=f"Learning Roadmap: {topic}")
 
 # ============================================================================
 # API ROUTES
@@ -436,12 +361,11 @@ def create_horizontal_roadmap(topic: str, data: dict, branch_configs: list, mode
 
 @app.get("/")
 async def root():
-    ai_status = "enabled (Google Gemini)" if gemini_model else "disabled (no API key)"
     return {
         "message": "Visual AI Companion API",
         "version": "1.0.0",
         "status": "active",
-        "ai_generation": ai_status
+        "ai": "Groq (llama-3.1-8b-instant)" if groq_client else "disabled"
     }
 
 @app.get("/health")
@@ -450,11 +374,10 @@ async def health():
 
 @app.post("/api/generate-mindmap", response_model=MindMapResponse)
 async def generate_mindmap(request: MindMapRequest):
-    """Generate AI-powered comprehensive roadmap or deep dive"""
     try:
         topic = request.topic
         mode = request.mode
-        
+
         if mode == "deepdive":
             data = generate_ai_deepdive(topic)
             branch_configs = [
@@ -477,51 +400,37 @@ async def generate_mindmap(request: MindMapRequest):
                 ("projects", "💼 Projects", 600)
             ]
             return create_horizontal_roadmap(topic, data, branch_configs, mode)
-        
+
     except Exception as e:
         print(f"Error in generate_mindmap: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/generate-study-plan", response_model=StudyPlanResponse)
 async def generate_study_plan(request: StudyPlanRequest):
-    """Generate AI-powered study plan"""
     try:
         topic = request.topic
         num_weeks = request.weeks
         daily_hours = request.hours_per_day
-        
-        if not GOOGLE_API_KEY:
+
+        if not groq_client:
             weeks_data = [
                 WeekPlan(
-                    week=week,
-                    title=f"Week {week}: {'Basics' if week <= 2 else 'Advanced'}",
+                    week=w, title=f"Week {w}",
                     topics=[f"Topic {i}" for i in range(1, 4)],
                     daily_hours=daily_hours,
                     goals=[f"Goal {i}" for i in range(1, 3)]
-                ) for week in range(1, num_weeks + 1)
+                ) for w in range(1, num_weeks + 1)
             ]
-            
             return StudyPlanResponse(
-                topic=topic,
-                total_weeks=num_weeks,
-                daily_hours=daily_hours,
-                difficulty=request.difficulty,
-                weeks=weeks_data,
+                topic=topic, total_weeks=num_weeks, daily_hours=daily_hours,
+                difficulty=request.difficulty, weeks=weeks_data,
                 estimated_total_hours=num_weeks * 7 * daily_hours
             )
-        
-        prompt = f"""Create a detailed {num_weeks}-week study plan for: "{topic}"
 
-Student details:
-- Study time: {daily_hours} hours/day
-- Difficulty level: {request.difficulty}
+        prompt = f"""Create a {num_weeks}-week study plan for: "{topic}"
+Hours per day: {daily_hours}, Difficulty: {request.difficulty}
 
-For each week, provide:
-1. A descriptive title for that week
-2. 3-4 specific topics to cover
-3. 2-3 concrete learning goals
-
-Return ONLY valid JSON:
+Return ONLY valid JSON (no markdown):
 {{
   "weeks": [
     {{
@@ -533,140 +442,92 @@ Return ONLY valid JSON:
   ]
 }}
 
-Be specific and progressive - each week should build on previous weeks."""
+Each week must build on the previous. Be specific."""
 
-        model = genai.GenerativeModel('gemini-flash-latest')
-        response = model.generate_content(prompt)
-        response_text = response.text.strip()
-        
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0]
-        elif "```" in response_text:
-            parts = response_text.split("```")
-            for part in parts:
-                if "{" in part and "}" in part:
-                    response_text = part
-                    break
-        
-        response_text = response_text.strip()
-        plan_data = json.loads(response_text)
-        
+        text = groq_chat(prompt)
+        text = clean_json_response(text)
+        plan_data = json.loads(text)
+
         weeks_list = [
             WeekPlan(
-                week=week_data.get("week", i+1),
-                title=week_data.get("title", f"Week {i+1}"),
-                topics=week_data.get("topics", []),
+                week=w.get("week", i+1),
+                title=w.get("title", f"Week {i+1}"),
+                topics=w.get("topics", []),
                 daily_hours=daily_hours,
-                goals=week_data.get("goals", [])
-            ) for i, week_data in enumerate(plan_data.get("weeks", []))
+                goals=w.get("goals", [])
+            ) for i, w in enumerate(plan_data.get("weeks", []))
         ]
-        
+
         return StudyPlanResponse(
-            topic=topic,
-            total_weeks=num_weeks,
-            daily_hours=daily_hours,
-            difficulty=request.difficulty,
-            weeks=weeks_list,
+            topic=topic, total_weeks=num_weeks, daily_hours=daily_hours,
+            difficulty=request.difficulty, weeks=weeks_list,
             estimated_total_hours=num_weeks * 7 * daily_hours
         )
-        
+
     except Exception as e:
-        print(f"Study plan generation failed: {e}")
+        print(f"Study plan failed: {e}")
         weeks_data = [
             WeekPlan(
-                week=week,
-                title=f"Week {week}: {'Foundation' if week <= 2 else 'Advanced Concepts'}",
+                week=w, title=f"Week {w}",
                 topics=[f"Core Topic {i}" for i in range(1, 4)],
                 daily_hours=request.hours_per_day,
                 goals=[f"Master skill {i}" for i in range(1, 3)]
-            ) for week in range(1, request.weeks + 1)
+            ) for w in range(1, request.weeks + 1)
         ]
-        
         return StudyPlanResponse(
-            topic=request.topic,
-            total_weeks=request.weeks,
-            daily_hours=request.hours_per_day,
-            difficulty=request.difficulty,
+            topic=request.topic, total_weeks=request.weeks,
+            daily_hours=request.hours_per_day, difficulty=request.difficulty,
             weeks=weeks_data,
             estimated_total_hours=request.weeks * 7 * request.hours_per_day
         )
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    """AI-powered chat assistant for learning"""
     try:
-        if not GOOGLE_API_KEY:
+        if not groq_client:
             return ChatResponse(
-                message="AI chat is not available. Please configure API key.",
+                message="AI chat is not available. Please add GROQ_API_KEY to your .env file.",
                 mode=request.mode
             )
-        
+
         user_message = request.messages[-1].content if request.messages else ""
-        
-        conversation = []
-        for msg in request.messages[:-1]:
-            conversation.append(f"{msg.role}: {msg.content}")
-        
-        conversation_context = "\n".join(conversation[-5:])
-        
+
         if request.mode == "notes":
-            system_prompt = """You are a study assistant that creates concise, well-structured notes.
+            system = """You are a study assistant that creates concise, well-structured notes.
+Extract key points, organize in bullet points, use clear language, highlight important terms.
+Format with **bold** headings and bullet points."""
 
-When given a topic or text:
-1. Extract key points
-2. Organize in bullet points
-3. Use clear, simple language
-4. Highlight important terms
-5. Keep it brief but comprehensive
-
-Format your response with:
-- Main headings with **bold**
-- Bullet points for key concepts
-- Brief explanations 
-- Use plain text for formulas (avoid LaTeX $ symbols)"""
-
-            prompt = f"{system_prompt}\n\nCreate study notes for:\n{user_message}"
-            
         elif request.mode == "explain":
-            system_prompt = """You are a patient tutor who explains complex concepts simply.
+            system = """You are a patient tutor who explains complex concepts simply.
+Start with a simple analogy, break into digestible parts, use relatable examples.
+End with a simple comprehension question."""
 
-When explaining:
-1. Start with a simple analogy
-2. Break down into digestible parts
-3. Use examples students can relate to
-4. Avoid jargon or explain it clearly
-5. Write formulas in plain text (e.g., "y = mx + b" instead of "$y = mx + b$")
-6. Check understanding with a simple question at the end"""
-
-            prompt = f"{system_prompt}\n\nExplain this concept:\n{user_message}"
-            
         else:
-            system_prompt = """You are a helpful study companion for students.
+            system = """You are a helpful, friendly study companion for students.
+Answer questions clearly, explain concepts, provide examples, give study tips.
+Be concise and encouraging."""
 
-You help with:
-- Answering questions clearly
-- Explaining concepts
-- Study tips and motivation
-- Breaking down complex topics
-- Providing examples
+        # Build conversation history (last 5 messages)
+        messages = [{"role": "system", "content": system}]
+        for msg in request.messages[-6:-1]:
+            messages.append({
+                "role": msg.role if msg.role in ["user", "assistant"] else "user",
+                "content": msg.content
+            })
+        messages.append({"role": "user", "content": user_message})
 
-Be friendly, encouraging, and concise. Keep responses focused and helpful."""
+        response = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=1000,
+        )
 
-            if conversation_context:
-                prompt = f"{system_prompt}\n\nConversation so far:\n{conversation_context}\n\nStudent: {user_message}\n\nYour response:"
-            else:
-                prompt = f"{system_prompt}\n\nStudent: {user_message}\n\nYour response:"
-        
-        model = genai.GenerativeModel('gemini-flash-latest')
-        response = model.generate_content(prompt)
-        
-        response_text = response.text.strip()
-        
         return ChatResponse(
-            message=response_text,
+            message=response.choices[0].message.content.strip(),
             mode=request.mode
         )
-        
+
     except Exception as e:
         print(f"Chat error: {e}")
         return ChatResponse(
@@ -674,19 +535,8 @@ Be friendly, encouraging, and concise. Keep responses focused and helpful."""
             mode=request.mode
         )
 
-@app.post("/api/start-focus")
-async def start_focus(task: str, minutes: int = 25):
-    """Start a focus session"""
-    return {
-        "sessionId": f"session_{task.replace(' ', '_')}",
-        "task": task,
-        "minutes": minutes,
-        "status": "active"
-    }
-
 @app.get("/api/growth/{user_id}")
 async def get_growth(user_id: str):
-    """Get user growth stats"""
     return {
         "userId": user_id,
         "level": 5,

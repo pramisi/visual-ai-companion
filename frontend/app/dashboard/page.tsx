@@ -193,7 +193,8 @@ export default function Dashboard() {
     setChatInput('');
     setIsChatLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/chat', {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+const response = await fetch(`${backendUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ messages: updatedMessages, mode: chatMode })
